@@ -5,7 +5,7 @@ An AI travel assistant for Umrah websites. It answers questions from the site's 
 ## What it does
 
 - **Answers questions with sources.** Hybrid search (keyword + vector) with reranking over website pages, PDFs, text and Markdown, citing every answer.
-- **Recommends hotel stays.** Collects travelers, dates and the Makkah/Madinah split, then shows 3 priced options as cards and refines them ("cheaper", "closer to the Haram").
+- **Recommends hotel stays.** Collects travelers, dates and the Makkah/Madinah split, then shows priced options as cards and refines them.
 - **Hands off to a person.** Saves the lead, then opens WhatsApp with the full request pre-filled.
 
 ## How it's built
