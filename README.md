@@ -2,8 +2,6 @@
 
 An AI travel assistant for Umrah websites. It answers questions from the site's own content, builds priced Makkah and Madinah hotel stays through natural conversation, and hands the chosen option to an agent on WhatsApp.
 
-> **Status:** planning complete, build in progress. The full blueprint is in [`plan/plan.md`](plan/plan.md).
-
 ## What it does
 
 - **Answers questions with sources.** Hybrid search (keyword + vector) with reranking over website pages, PDFs, text and Markdown, citing every answer.
