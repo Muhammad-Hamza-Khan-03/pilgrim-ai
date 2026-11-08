@@ -10,7 +10,7 @@ An AI travel assistant for Umrah websites. It answers questions from the site's 
 
 ## How it's built
 
-- **Generic engine + domain pack.** Nothing about Umrah is hardcoded; slots, pricing rules, ranking, cards and prompts live in versioned config.
+- **Generic engine + domain pack.** slots, pricing rules, ranking, cards and prompts live in versioned config.
 - **Exact prices.** Computed in code from rate tables, never by an LLM.
 - **Resilient.** LLM fallback chain: Groq → Gemini → Workers AI → OpenAI, with a no-LLM degraded mode.
 - **Guarded.** Layered guardrails mapped to the OWASP Top 10 for LLM Applications.
