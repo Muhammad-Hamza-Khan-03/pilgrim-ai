@@ -46,9 +46,34 @@ describe('slot policy', () => {
     }
   });
 
-  it('reports required missing slots and chooses a deterministic next action', () => {
+  it('reports at most two missing slots in dependency-first stable order', () => {
+    const pack = {
+      slots: {
+        derived_map: { type: 'map', required: true },
+        source: { type: 'int', required: true },
+        independent: { type: 'text', required: true },
+      },
+      rules: [{ derive: 'derived_map[missing] = source - sum(derived_map)' }],
+    } as const;
+
+    expect(nextAction(pack, {})).toEqual({ type: 'ask', slots: ['source', 'derived_map'] });
     expect(nextAction(umrahPack, { travelers: 2, total_nights: 7 })).toEqual({ type: 'ask', slots: ['leg_nights', 'start_date'] });
     expect(nextAction(umrahPack, { travelers: 2, total_nights: 7, start_date: '2099-01-10', leg_nights: { Makkah: 4, Madinah: 3 } })).toEqual({ type: 'search' });
+  });
+
+  it('rejects derive rules targeting an unknown slot', () => {
+    const pack = {
+      slots: { known: { type: 'int' } },
+      rules: [{ derive: 'x[missing] = 1' }],
+    } as const;
+
+    expect(() => applySlotUpdates(pack, {}, {})).toThrow(SlotPolicyError);
+    expect(() => applySlotUpdates(pack, {}, {})).toThrow(/unknown slot/i);
+  });
+
+  it('rejects unknown keys in nextAction current state', () => {
+    expect(() => nextAction(umrahPack, { travelers: 2, unexpected: true })).toThrow(SlotPolicyError);
+    expect(() => nextAction(umrahPack, { travelers: 2, unexpected: true })).toThrow(/unknown slot/i);
   });
 
   it('bounds repeated derivation attempts', () => {

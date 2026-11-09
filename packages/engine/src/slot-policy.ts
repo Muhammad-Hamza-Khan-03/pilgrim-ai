@@ -109,6 +109,50 @@ function ruleReferencesAvailable(expression: string, slots: SlotState): boolean 
   }
 }
 
+function validateDeriveTargets(pack: SlotPack): void {
+  for (const rule of pack.rules) {
+    if (!rule.derive) continue;
+    const { target } = parseDeriveRule(rule.derive);
+    if (!(target in pack.slots)) fail(`Unknown slot '${target}'`, 'UNKNOWN_SLOT');
+  }
+}
+
+function deriveDependencies(pack: SlotPack): Map<string, string[]> {
+  const dependencies = new Map<string, string[]>();
+  for (const rule of pack.rules) {
+    if (!rule.derive) continue;
+    const { target, expression } = parseDeriveRule(rule.derive);
+    const references = Object.keys(pack.slots).filter((name) =>
+      name !== target && new RegExp(`(?:^|[^A-Za-z0-9_$])${name}(?:$|[^A-Za-z0-9_$])`).test(expression),
+    );
+    dependencies.set(target, [...(dependencies.get(target) ?? []), ...references]);
+  }
+  return dependencies;
+}
+
+function orderedMissingSlots(pack: SlotPack, slots: SlotState): string[] {
+  const missing = getMissingSlots(pack, slots);
+  const dependencies = deriveDependencies(pack);
+  const order = new Map(missing.map((name, index) => [name, index]));
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const ordered: string[] = [];
+
+  const visit = (name: string): void => {
+    if (visited.has(name) || visiting.has(name)) return;
+    visiting.add(name);
+    for (const dependency of dependencies.get(name) ?? []) {
+      if (order.has(dependency)) visit(dependency);
+    }
+    visiting.delete(name);
+    visited.add(name);
+    ordered.push(name);
+  };
+
+  for (const name of missing) visit(name);
+  return ordered.slice(0, 2);
+}
+
 function applyDerivations(pack: SlotPack, slots: SlotState, options: SlotPolicyOptions, derived: string[]): void {
   const max = options.maxDerivations ?? DEFAULT_MAX_DERIVATIONS;
   if (!Number.isInteger(max) || max < 0) fail('maxDerivations must be a non-negative integer', 'DERIVATION_LIMIT');
@@ -143,6 +187,7 @@ function checkRules(pack: SlotPack, slots: SlotState): void {
 
 export function applySlotUpdates(pack: SlotPack, current: SlotState, updates: SlotState, options: SlotPolicyOptions = {}): SlotPolicyResult {
   if (!isRecord(current) || !isRecord(updates)) fail('Slots and updates must be objects', 'SLOT_TYPE');
+  validateDeriveTargets(pack);
   const candidate = structuredClone(current);
   for (const [name, value] of Object.entries(updates)) candidate[name] = structuredClone(value);
   validateSlots(pack, candidate);
@@ -154,6 +199,8 @@ export function applySlotUpdates(pack: SlotPack, current: SlotState, updates: Sl
 }
 
 export function nextAction(pack: SlotPack, slots: SlotState): NextAction {
-  const missing = getMissingSlots(pack, slots);
+  if (!isRecord(slots)) fail('Slots and updates must be objects', 'SLOT_TYPE');
+  validateSlots(pack, slots);
+  const missing = orderedMissingSlots(pack, slots);
   return missing.length > 0 ? { type: 'ask', slots: missing } : { type: 'search' };
 }
