@@ -34,6 +34,9 @@ export type RecommendationResult = { options: RecommendationOption[] };
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const OBJECTIVES: readonly ObjectiveName[] = ['total_price', 'distance_m', 'stars', 'room_count'];
+/** Hard bounds required by the phase-1 Umrah recommender contract. */
+export const MAX_CANDIDATES_PER_LEG = 30;
+export const MAX_BUNDLE_EXPANSIONS = MAX_CANDIDATES_PER_LEG * MAX_CANDIDATES_PER_LEG;
 
 export class RecommenderError extends Error {
   readonly code: string;
@@ -75,9 +78,20 @@ function validateRequest(request: RecommendationRequest): void {
   for (const nights of Object.values(request.leg_nights)) if (!Number.isInteger(nights) || nights < 1) fail('Leg nights must be positive integers', 'REQUEST_INVALID');
   if (request.result_count !== undefined && (!Number.isInteger(request.result_count) || request.result_count < 1 || request.result_count > 20)) fail('result_count must be an integer from 1 to 20', 'REQUEST_INVALID');
   if (request.diversity !== undefined && (typeof request.diversity !== 'number' || !Number.isFinite(request.diversity) || request.diversity < 0 || request.diversity > 1)) fail('diversity must be between 0 and 1', 'REQUEST_INVALID');
-  if (request.objectives) for (const [name, weight] of Object.entries(request.objectives)) { if (!OBJECTIVES.includes(name as ObjectiveName) || typeof weight !== 'number' || !Number.isFinite(weight) || weight < 0) fail(`Invalid objective ${name}`, 'REQUEST_INVALID'); }
+  if (request.objectives !== undefined) {
+    if (!record(request.objectives)) fail('Invalid objectives', 'REQUEST_INVALID');
+    for (const [name, weight] of Object.entries(request.objectives)) {
+      if (!OBJECTIVES.includes(name as ObjectiveName) || typeof weight !== 'number' || !Number.isFinite(weight) || weight < 0) fail(`Invalid objective ${name}`, 'REQUEST_INVALID');
+    }
+  }
   const filters = request.filters;
-  if (filters && (!record(filters) || (filters.max_distance_m !== undefined && (typeof filters.max_distance_m !== 'number' || filters.max_distance_m < 0)) || (filters.min_stars !== undefined && (typeof filters.min_stars !== 'number' || filters.min_stars < 0)) || (filters.cities !== undefined && (!Array.isArray(filters.cities) || filters.cities.some((city) => typeof city !== 'string'))) || (filters.room_types !== undefined && (!Array.isArray(filters.room_types) || filters.room_types.some((type) => typeof type !== 'string'))))) fail('Invalid filters', 'REQUEST_INVALID');
+  if (filters !== undefined) {
+    if (!record(filters)) fail('Invalid filters', 'REQUEST_INVALID');
+    if (filters.max_distance_m !== undefined) assertFinite(filters.max_distance_m, 'max_distance_m');
+    if (filters.min_stars !== undefined) assertFinite(filters.min_stars, 'min_stars');
+    if (filters.cities !== undefined && (!Array.isArray(filters.cities) || filters.cities.some((city) => typeof city !== 'string'))) fail('Invalid filters', 'REQUEST_INVALID');
+    if (filters.room_types !== undefined && (!Array.isArray(filters.room_types) || filters.room_types.some((type) => typeof type !== 'string'))) fail('Invalid filters', 'REQUEST_INVALID');
+  }
 }
 function nightlyPrice(room: Room, start: string, nights: number): number | undefined {
   let total = 0;
@@ -85,6 +99,7 @@ function nightlyPrice(room: Room, start: string, nights: number): number | undef
     const day = addDays(start, i); const valid = room.rates.filter((rate) => rate.valid_from <= day && day <= rate.valid_to);
     if (!valid.length) return undefined;
     total += Math.min(...valid.map((rate) => rate.price));
+    if (!Number.isFinite(total)) fail('Nightly price is non-finite', 'CATALOG_INVALID');
   }
   return total;
 }
@@ -112,18 +127,61 @@ function allocations(hotel: Hotel, travelers: number, start: string, nights: num
 type LegOption = { city: string; hotel: Hotel; allocation: Allocation[]; total: number };
 function dominates(a: LegOption, b: LegOption): boolean { const noWorse = a.total <= b.total && a.hotel.distance_m <= b.hotel.distance_m && a.hotel.stars >= b.hotel.stars && a.allocation.length <= b.allocation.length; const better = a.total < b.total || a.hotel.distance_m < b.hotel.distance_m || a.hotel.stars > b.hotel.stars || a.allocation.length < b.allocation.length; return noWorse && better; }
 function pareto(options: LegOption[]): LegOption[] { return options.filter((option, i) => !options.some((other, j) => i !== j && dominates(other, option))); }
-function weights(request: RecommendationRequest): Record<ObjectiveName, number> { const raw = Object.fromEntries(OBJECTIVES.map((name) => [name, request.objectives?.[name] ?? ({ total_price: 0.4, distance_m: 0.3, stars: 0.2, room_count: 0.1 }[name])])); const sum = Object.values(raw).reduce((a, b) => a + b, 0); if (sum <= 0) fail('Objective weights must have a positive sum', 'REQUEST_INVALID'); return Object.fromEntries(OBJECTIVES.map((name) => [name, raw[name] / sum])) as Record<ObjectiveName, number>; }
+function weights(request: RecommendationRequest): Record<ObjectiveName, number> {
+  const raw = Object.fromEntries(OBJECTIVES.map((name) => [name, request.objectives?.[name] ?? ({ total_price: 0.4, distance_m: 0.3, stars: 0.2, room_count: 0.1 }[name])]));
+  const sum = Object.values(raw).reduce((a, b) => a + b, 0);
+  if (!Number.isFinite(sum) || sum <= 0) fail('Objective weights must have a finite positive sum', 'REQUEST_INVALID');
+  const normalized = Object.fromEntries(OBJECTIVES.map((name) => [name, raw[name] / sum])) as Record<ObjectiveName, number>;
+  if (Object.values(normalized).some((value) => !Number.isFinite(value))) fail('Objective weights normalize to non-finite values', 'REQUEST_INVALID');
+  return normalized;
+}
 function distance(a: RecommendationOption, b: RecommendationOption): number { return a.hotel_ids.some((id) => !b.hotel_ids.includes(id)) || a.allocation.some((x) => !b.allocation.some((y) => y.room_type === x.room_type)) ? 1 : 0; }
+
+function legId(option: LegOption): string { return `${option.hotel.id}:${option.allocation.map((room) => room.room_id).join('+')}`; }
 
 export function recommend(catalog: Catalog, request: RecommendationRequest): RecommendationResult {
   validateCatalog(catalog); validateRequest(request); const weightsByObjective = weights(request); const hotelsByCity = new Map<string, Hotel[]>();
   for (const hotel of catalog.hotels) { if (request.filters?.cities && !request.filters.cities.includes(hotel.city)) continue; if (request.filters?.max_distance_m !== undefined && hotel.distance_m > request.filters.max_distance_m) continue; if (request.filters?.min_stars !== undefined && hotel.stars < request.filters.min_stars) continue; hotelsByCity.set(hotel.city, [...(hotelsByCity.get(hotel.city) ?? []), hotel]); }
   const legs = Object.entries(request.leg_nights); const perLeg: LegOption[][] = [];
-  for (let legIndex = 0, elapsed = 0; legIndex < legs.length; legIndex++) { const [city, nights] = legs[legIndex]; const candidates: LegOption[] = []; for (const hotel of hotelsByCity.get(city) ?? []) for (const allocation of allocations(hotel, request.travelers, addDays(request.start_date, elapsed), nights, request.filters)) candidates.push({ city, hotel, allocation, total: allocation.reduce((sum, room) => sum + room.total_price * room.quantity, 0) }); elapsed += nights; const front = pareto(candidates); if (!front.length) fail(`No exact-capacity candidate for ${city}`, 'NO_CANDIDATES'); perLeg.push(front); }
+  for (let legIndex = 0, elapsed = 0; legIndex < legs.length; legIndex++) {
+    const [city, nights] = legs[legIndex]; const candidates: LegOption[] = [];
+    for (const hotel of hotelsByCity.get(city) ?? []) {
+      for (const allocation of allocations(hotel, request.travelers, addDays(request.start_date, elapsed), nights, request.filters)) {
+        const total = allocation.reduce((sum, room) => sum + room.total_price * room.quantity, 0);
+        if (!Number.isFinite(total)) fail(`Non-finite candidate price for ${city}`, 'RECOMMENDER_INVALID');
+        candidates.push({ city, hotel, allocation, total });
+      }
+    }
+    elapsed += nights;
+    const front = pareto(candidates).sort((a, b) => a.total - b.total || a.hotel.distance_m - b.hotel.distance_m || b.hotel.stars - a.hotel.stars || a.allocation.length - b.allocation.length || legId(a).localeCompare(legId(b))).slice(0, MAX_CANDIDATES_PER_LEG);
+    if (!front.length) fail(`No exact-capacity candidate for ${city}`, 'NO_CANDIDATES');
+    perLeg.push(front);
+  }
   let bundles: RecommendationOption[] = [{ id: '', hotel_ids: [], hotel_names: [], cities: [], allocation: [], total_price: 0, room_count: 0, distance_m: 0, stars: 0, score: 0, explanation_facts: [] }];
-  for (const legOptions of perLeg) { const next: RecommendationOption[] = []; for (const bundle of bundles) for (const leg of legOptions) next.push({ id: bundle.id ? `${bundle.id}|${leg.hotel.id}:${leg.allocation.map((r) => r.room_id).join('+')}` : `${leg.hotel.id}:${leg.allocation.map((r) => r.room_id).join('+')}`, hotel_ids: [...bundle.hotel_ids, leg.hotel.id], hotel_names: [...bundle.hotel_names, leg.hotel.name], cities: [...bundle.cities, leg.city], allocation: [...bundle.allocation, ...leg.allocation], total_price: bundle.total_price + leg.total, room_count: bundle.room_count + leg.allocation.reduce((sum, room) => sum + room.quantity, 0), distance_m: bundle.distance_m + leg.hotel.distance_m, stars: bundle.stars + leg.hotel.stars, score: 0, explanation_facts: [] }); bundles = next; }
-  const ranges: Record<ObjectiveName, { min: number; max: number }> = Object.fromEntries(OBJECTIVES.map((objective) => { const values = bundles.map((b) => b[objective]); return [objective, { min: Math.min(...values), max: Math.max(...values) }]; })) as Record<ObjectiveName, { min: number; max: number }>;
-  for (const bundle of bundles) { bundle.score = OBJECTIVES.reduce((score, objective) => { const range = ranges[objective]; const normalized = range.max === range.min ? 1 : (objective === 'stars' ? (bundle[objective] - range.min) / (range.max - range.min) : (range.max - bundle[objective]) / (range.max - range.min)); return score + weightsByObjective[objective] * normalized; }, 0); }
+  for (const legOptions of perLeg) {
+    if (bundles.length > Math.floor(MAX_BUNDLE_EXPANSIONS / legOptions.length)) fail('Bundle expansion limit exceeded', 'BOUNDS_EXCEEDED');
+    const next: RecommendationOption[] = [];
+    for (const bundle of bundles) for (const leg of legOptions) {
+      const total_price = bundle.total_price + leg.total;
+      const distance_m = bundle.distance_m + leg.hotel.distance_m;
+      const stars = bundle.stars + leg.hotel.stars;
+      if (![total_price, distance_m, stars].every(Number.isFinite)) fail('Bundle metric is non-finite', 'RECOMMENDER_INVALID');
+      next.push({ id: bundle.id ? `${bundle.id}|${legId(leg)}` : legId(leg), hotel_ids: [...bundle.hotel_ids, leg.hotel.id], hotel_names: [...bundle.hotel_names, leg.hotel.name], cities: [...bundle.cities, leg.city], allocation: [...bundle.allocation, ...leg.allocation], total_price, room_count: bundle.room_count + leg.allocation.reduce((sum, room) => sum + room.quantity, 0), distance_m, stars, score: 0, explanation_facts: [] });
+    }
+    bundles = next;
+  }
+  const ranges: Record<ObjectiveName, { min: number; max: number }> = Object.fromEntries(OBJECTIVES.map((objective) => { const values = bundles.map((b) => b[objective]); if (values.some((value) => !Number.isFinite(value))) fail(`Non-finite ${objective} value`, 'RECOMMENDER_INVALID'); return [objective, { min: Math.min(...values), max: Math.max(...values) }]; })) as Record<ObjectiveName, { min: number; max: number }>;
+  for (const bundle of bundles) {
+    bundle.score = OBJECTIVES.reduce((score, objective) => {
+      const range = ranges[objective]; const raw = range.max === range.min ? 1 : (objective === 'stars' ? (bundle[objective] - range.min) / (range.max - range.min) : (range.max - bundle[objective]) / (range.max - range.min));
+      if (!Number.isFinite(raw)) fail(`Non-finite normalized ${objective} score`, 'RECOMMENDER_INVALID');
+      const normalized = Math.min(1, Math.max(0, raw)); const contribution = weightsByObjective[objective] * normalized; const nextScore = score + contribution;
+      if (!Number.isFinite(contribution) || !Number.isFinite(nextScore)) fail('Non-finite recommendation score', 'RECOMMENDER_INVALID');
+      return nextScore;
+    }, 0);
+    bundle.score = Math.min(1, Math.max(0, bundle.score));
+    if (!Number.isFinite(bundle.score)) fail('Non-finite recommendation score', 'RECOMMENDER_INVALID');
+  }
   bundles.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)); const selected: RecommendationOption[] = []; const limit = request.result_count ?? 3; const diversity = request.diversity ?? 0.3;
   while (selected.length < limit && bundles.length) { const choice = bundles.map((candidate) => ({ candidate, mmr: candidate.score - (selected.length ? (1 - diversity) * Math.max(...selected.map((chosen) => distance(candidate, chosen))) : 0) })).sort((a, b) => b.mmr - a.mmr || a.candidate.id.localeCompare(b.candidate.id))[0].candidate; bundles = bundles.filter((candidate) => candidate !== choice); selected.push(choice); }
   for (const option of selected) { option.explanation_facts = OBJECTIVES.filter((objective) => weightsByObjective[objective] > 0 && option[objective] === (objective === 'stars' ? ranges[objective].max : ranges[objective].min)).map((objective) => ({ kind: 'objective_winner', objective, value: option[objective] })); }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { recommend, RecommenderError, type Catalog, type RecommendationRequest } from '../src/recommender.js';
+import { MAX_BUNDLE_EXPANSIONS, MAX_CANDIDATES_PER_LEG, recommend, RecommenderError, type Catalog, type RecommendationRequest } from '../src/recommender.js';
 
 const catalog: Catalog = {
   hotels: [
@@ -45,5 +45,59 @@ describe('bounded in-memory recommender', () => {
     const result = recommend(catalog, { ...request, result_count: 2, diversity: 0.8, objectives: { total_price: 0.5, distance_m: 0.5 } });
     expect(result.options.map((option) => option.id)).toEqual(['makkah-near:double+triple', 'makkah-far:five']);
     expect(result.options.every((option) => option.score >= 0 && option.score <= 1)).toBe(true);
+  });
+
+  it('returns an exact bounded score for a single option', () => {
+    const oneHotel: Catalog = { hotels: [catalog.hotels[0]] };
+    const result = recommend(oneHotel, request);
+    expect(result.options).toHaveLength(1);
+    expect(result.options[0].score).toBe(1);
+  });
+
+  it('rejects non-finite score intermediates with a typed error', () => {
+    const overflowing: Catalog = {
+      hotels: [
+        { ...catalog.hotels[0], city: 'Makkah', rooms: [{ ...catalog.hotels[0].rooms[0], rates: [{ price: Number.MAX_VALUE, valid_from: '2099-01-01', valid_to: '2099-01-31' }] }] },
+        { ...catalog.hotels[1], city: 'Madinah', rooms: [{ ...catalog.hotels[1].rooms[0], rates: [{ price: Number.MAX_VALUE, valid_from: '2099-01-01', valid_to: '2099-01-31' }] }] },
+      ],
+    };
+    expect(() => recommend(overflowing, { ...request, leg_nights: { Makkah: 1, Madinah: 1 } })).toThrow(RecommenderError);
+  });
+
+  it.each([
+    ['travelers', { travelers: Number.NaN }],
+    ['max_distance_m', { filters: { max_distance_m: Number.POSITIVE_INFINITY } }],
+    ['min_stars', { filters: { min_stars: '5' } }],
+    ['weight', { objectives: { total_price: Number.NaN } }],
+    ['leg_nights', { leg_nights: { Makkah: Number.POSITIVE_INFINITY } }],
+  ])('rejects non-finite or wrongly typed %s before search', (_field, update) => {
+    expect(() => recommend(catalog, { ...request, ...update } as RecommendationRequest)).toThrow(RecommenderError);
+  });
+
+  it('keeps at most thirty ranked candidates independently per leg', () => {
+    const hotels = Array.from({ length: MAX_CANDIDATES_PER_LEG + 5 }, (_, index) => ({
+      id: `m-${index.toString().padStart(2, '0')}`,
+      name: `Makkah ${index}`,
+      city: 'Makkah',
+      stars: 5,
+      distance_m: index + 1,
+      rooms: [{ id: `room-${index}`, room_type: 'five', capacity: 5, rates: [{ price: 40 - index, valid_from: '2099-01-01', valid_to: '2099-01-31' }] }],
+    }));
+    const result = recommend({ hotels: hotels }, request);
+    expect(result.options.length).toBeLessThanOrEqual(MAX_CANDIDATES_PER_LEG);
+    expect(result.options[0].hotel_ids).toEqual(['m-34']);
+  });
+
+  it('fails before producing partial results when named bundle expansion bound is exceeded', () => {
+    const makeLeg = (city: string) => Array.from({ length: 30 }, (_, index) => ({
+      id: `${city}-${index}`,
+      name: `${city} ${index}`,
+      city,
+      stars: 5,
+      distance_m: index + 1,
+      rooms: [{ id: `${city}-room-${index}`, room_type: 'five', capacity: 5, rates: [{ price: 40 - index, valid_from: '2099-01-01', valid_to: '2099-01-31' }] }],
+    }));
+    expect(MAX_BUNDLE_EXPANSIONS).toBeLessThan(30 * 30 * 30);
+    expect(() => recommend({ hotels: [...makeLeg('Makkah'), ...makeLeg('Madinah'), ...makeLeg('Taif')] }, { ...request, leg_nights: { Makkah: 1, Madinah: 1, Taif: 1 } })).toThrow(RecommenderError);
   });
 });
