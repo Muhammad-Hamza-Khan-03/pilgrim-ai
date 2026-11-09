@@ -81,7 +81,8 @@ function tokenize(source: string): Token[] {
 class Parser {
   private index = 0;
   private nodes = 0;
-  constructor(private readonly tokens: Token[], private readonly limit: number) {}
+  private depth = 0;
+  constructor(private readonly tokens: Token[], private readonly limit: number, private readonly maxDepth: number) {}
   parse(): Node {
     const node = this.parseOr();
     if (this.peek().kind !== 'eof') fail(`Unexpected token '${this.peek().value}'`);
@@ -102,7 +103,10 @@ class Parser {
   private parseAdd(): Node { return this.binary(() => this.parseMultiply(), new Set(['+', '-'])); }
   private parseMultiply(): Node { return this.binary(() => this.parseUnary(), new Set(['*', '/', '%'])); }
   private parseUnary(): Node {
-    if (this.match('+') || this.match('-')) { const op = this.tokens[this.index - 1].value as '+' | '-'; const operand = this.parseUnary(); this.count(); return { kind: 'unary', op, operand }; }
+    if (this.match('+') || this.match('-')) {
+      if (++this.depth > this.maxDepth) fail('Expression depth limit exceeded', 'DEPTH_LIMIT');
+      try { const op = this.tokens[this.index - 1].value as '+' | '-'; const operand = this.parseUnary(); this.count(); return { kind: 'unary', op, operand }; } finally { this.depth--; }
+    }
     return this.parsePrimary();
   }
   private parsePrimary(): Node {
@@ -127,7 +131,10 @@ class Parser {
       if (parts.some((part) => FORBIDDEN_PARTS.has(part))) fail('Prototype paths are not allowed', 'PROTOTYPE_PATH');
       this.count(); return { kind: 'reference', parts };
     }
-    if (this.match('(')) { const node = this.parseOr(); this.take(')'); return node; }
+    if (this.match('(')) {
+      if (++this.depth > this.maxDepth) fail('Expression depth limit exceeded', 'DEPTH_LIMIT');
+      try { const node = this.parseOr(); this.take(')'); return node; } finally { this.depth--; }
+    }
     fail(`Unexpected token '${token.value}' at ${token.position}`);
   }
 }
@@ -136,7 +143,9 @@ function isObject(value: unknown): value is Record<string, unknown> { return typ
 function isDate(value: unknown): value is string {
   if (typeof value !== 'string' || !ISO_DATE.test(value)) return false;
   const [year, month, day] = value.split('-').map(Number);
-  const parsed = new Date(Date.UTC(year, month - 1, day));
+  const parsed = new Date(0);
+  parsed.setUTCFullYear(year, month - 1, day);
+  parsed.setUTCHours(0, 0, 0, 0);
   return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
 }
 function resolve(parts: string[], scopes: Record<string, unknown>[]): unknown {
@@ -156,7 +165,7 @@ function resolve(parts: string[], scopes: Record<string, unknown>[]): unknown {
 function finiteNumber(value: unknown): number { if (typeof value !== 'number' || !Number.isFinite(value)) fail('Expected a finite number', 'TYPE_ERROR'); return value; }
 function compare(left: unknown, right: unknown, op: string): boolean {
   if (typeof left === 'number' && typeof right === 'number') { if (!Number.isFinite(left) || !Number.isFinite(right)) fail('Expected finite numbers', 'TYPE_ERROR'); }
-  else if (isDate(left) && isDate(right)) { left = Date.parse(`${left}T00:00:00Z`); right = Date.parse(`${right}T00:00:00Z`); }
+  else if (isDate(left) && isDate(right)) { /* Fixed-width ISO dates sort chronologically as strings. */ }
   else if (op !== '==' && op !== '===' && op !== '!=' && op !== '!==') fail('Comparison requires matching numbers or dates', 'TYPE_ERROR');
   switch (op) { case '==': case '===': return left === right; case '!=': case '!==': return left !== right; case '<': return (left as any) < (right as any); case '<=': return (left as any) <= (right as any); case '>': return (left as any) > (right as any); case '>=': return (left as any) >= (right as any); default: fail(`Unsupported operator '${op}'`); }
 }
@@ -179,12 +188,12 @@ function evaluate(node: Node, scopes: Record<string, unknown>[], limits: Require
   if (!Array.isArray(values)) fail(`${node.name} requires an array`, 'TYPE_ERROR');
   if (node.args.length === 1) {
     const numbers = values.map((value) => { state.iterations++; if (state.iterations > limits.maxIterations) fail('Iteration limit exceeded', 'ITERATION_LIMIT'); return finiteNumber(value); });
-    if (node.name === 'sum') return numbers.reduce((total, value) => total + value, 0);
+    if (node.name === 'sum') return numbers.reduce((total, value) => finiteNumber(total + value), 0);
     if (numbers.length === 0) fail(`${node.name} cannot reduce an empty array`, 'ARGUMENT_ERROR');
     return node.name === 'min' ? Math.min(...numbers) : Math.max(...numbers);
   }
   if (node.args.length !== 2) fail(`${node.name} expects one or two arguments`, 'ARGUMENT_ERROR');
-  if (node.name === 'sum') return values.reduce<number>((total, item) => { state.iterations++; if (state.iterations > limits.maxIterations) fail('Iteration limit exceeded', 'ITERATION_LIMIT'); return total + finiteNumber(evaluate(node.args[1], [{ value: item, ...(isObject(item) ? item : {}) }, ...scopes], limits, depth + 1, state)); }, 0);
+  if (node.name === 'sum') return values.reduce<number>((total, item) => { state.iterations++; if (state.iterations > limits.maxIterations) fail('Iteration limit exceeded', 'ITERATION_LIMIT'); return finiteNumber(total + finiteNumber(evaluate(node.args[1], [{ value: item, ...(isObject(item) ? item : {}) }, ...scopes], limits, depth + 1, state))); }, 0);
   const evaluated = values.map((item) => { state.iterations++; if (state.iterations > limits.maxIterations) fail('Iteration limit exceeded', 'ITERATION_LIMIT'); return finiteNumber(evaluate(node.args[1], [{ value: item, ...(isObject(item) ? item : {}) }, ...scopes], limits, depth + 1, state)); });
   if (evaluated.length === 0) fail(`${node.name} cannot reduce an empty array`, 'ARGUMENT_ERROR');
   return node.name === 'min' ? Math.min(...evaluated) : Math.max(...evaluated);
@@ -192,8 +201,11 @@ function evaluate(node: Node, scopes: Record<string, unknown>[], limits: Require
 
 export function evaluateExpression(source: string, context: Context, limits: ExpressionLimits = {}): Value {
   const effective = { ...DEFAULT_LIMITS, ...limits };
-  if (!Number.isInteger(effective.maxSourceLength) || source.length > effective.maxSourceLength) fail('Source length limit exceeded', 'SOURCE_LIMIT');
+  for (const [name, value] of Object.entries(effective)) {
+    if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) fail(`Invalid ${name} limit`, 'LIMIT_INVALID');
+  }
+  if (source.length > effective.maxSourceLength) fail('Source length limit exceeded', 'SOURCE_LIMIT');
   if (!isObject(context)) fail('Context must be an object', 'TYPE_ERROR');
-  const ast = new Parser(tokenize(source), effective.maxAstNodes).parse();
+  const ast = new Parser(tokenize(source), effective.maxAstNodes, effective.maxDepth).parse();
   return evaluate(ast, [context], effective, 0, { iterations: 0 });
 }

@@ -29,6 +29,36 @@ describe('sandboxed expression evaluator', () => {
     expect(() => evaluateExpression('start < end', { start: '2026-02-31', end: '2026-03-03' }, options)).toThrow(ExpressionEvaluationError);
   });
 
+  it.each([
+    ['0000-01-01', '0000-01-02'],
+    ['0001-01-01', '0001-01-02'],
+    ['0099-12-30', '0100-01-01'],
+  ])('supports ISO dates with year %s without legacy Date.UTC behavior', (start, end) => {
+    expect(evaluateExpression('start < end', { start, end }, options)).toBe(true);
+  });
+
+  it('rejects invalid dates in the early ISO year range', () => {
+    expect(() => evaluateExpression('start < end', { start: '0000-02-30', end: '0001-01-01' }, options)).toThrow(ExpressionEvaluationError);
+  });
+
+  it('fails closed when an aggregate result becomes non-finite', () => {
+    expect(() => evaluateExpression('sum(values)', { values: [Number.MAX_VALUE, Number.MAX_VALUE] }, options)).toThrow(ExpressionEvaluationError);
+    expect(() => evaluateExpression('sum(values, value * 2)', { values: [Number.MAX_VALUE] }, options)).toThrow(ExpressionEvaluationError);
+  });
+
+  it('rejects non-finite and negative effective limits before parsing or evaluation', () => {
+    for (const limit of ['maxSourceLength', 'maxAstNodes', 'maxDepth', 'maxIterations'] as const) {
+      expect(() => evaluateExpression('1', {}, { [limit]: Number.NaN })).toThrow(ExpressionEvaluationError);
+      expect(() => evaluateExpression('1', {}, { [limit]: -1 })).toThrow(ExpressionEvaluationError);
+      expect(() => evaluateExpression('1', {}, { [limit]: Number.POSITIVE_INFINITY })).toThrow(ExpressionEvaluationError);
+    }
+  });
+
+  it('bounds parser recursion before deeply nested parentheses can overflow the call stack', () => {
+    const source = `${'('.repeat(5000)}1${')'.repeat(5000)}`;
+    expect(() => evaluateExpression(source, {}, { ...options, maxSourceLength: 20_000, maxAstNodes: 10_000, maxDepth: 10 })).toThrow(ExpressionEvaluationError);
+  });
+
   it('supports allowlisted aggregates including nested aggregate syntax', () => {
     const context = {
       legs: [
