@@ -4,3 +4,5 @@ export { evaluateExpression, ExpressionEvaluationError } from './expression-eval
 export type { ExpressionLimits } from './expression-evaluator.js';
 export { applySlotUpdates, getMissingSlots, nextAction, parseDeriveRule, SlotPolicyError } from './slot-policy.js';
 export type { NextAction, SlotDefinition, SlotPack, SlotPolicyOptions, SlotPolicyResult, SlotState, SlotValue } from './slot-policy.js';
+export { recommend, RecommenderError } from './recommender.js';
+export type { Allocation, Catalog, ExplanationFact, Hotel, ObjectiveName, Rate, RecommendationOption, RecommendationRequest, RecommendationResult, RecommenderFilters, Room } from './recommender.js';
