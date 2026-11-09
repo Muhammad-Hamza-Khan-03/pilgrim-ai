@@ -1,0 +1,17 @@
+{
+  "name": "pilgrim-ai",
+  "private": true,
+  "packageManager": "pnpm@11.1.0",
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  },
+  "scripts": {
+    "test": "pnpm --filter @pilgrim/engine test",
+    "typecheck": "pnpm --filter @pilgrim/engine typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "@types/node": "^22.10.2"
+  }
+}

@@ -1,0 +1,25 @@
+pack: car-rental
+version: 1
+locale:
+  default: en
+  supported: [en]
+persona:
+  tone: practical
+  currency: USD
+catalog:
+  car:
+    attributes:
+      name: { type: text }
+      seats: { type: int, role: capacity }
+      daily_rate: { type: money, role: unit_price, per: day }
+slots:
+  pickup_date: { type: date, required: true, describe: pickup date }
+  rental_days: { type: int, min: 1, required: true, describe: number of rental days }
+rules:
+  - check: rental_days >= 1
+bundle:
+  pick: car
+  price: rental_days * car.daily_rate
+objectives:
+  total_price: { direction: min, weight: 1 }
+results: { count: 3, diversity: 0.2 }
