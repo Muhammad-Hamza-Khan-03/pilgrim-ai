@@ -118,9 +118,12 @@ class Parser {
       if (token.value === 'true' || token.value === 'false' || token.value === 'null') { this.count(); return { kind: 'literal', value: token.value === 'true' ? true : token.value === 'false' ? false : null }; }
       if (this.match('(')) {
         if (!['sum', 'min', 'max'].includes(token.value)) fail(`Function '${token.value}' is not allowed`);
-        const args: Node[] = [];
-        if (!this.match(')')) { do { args.push(this.parseOr()); } while (this.match(',')); this.take(')'); }
-        this.count(); return { kind: 'call', name: token.value as 'sum' | 'min' | 'max', args };
+        if (++this.depth > this.maxDepth) fail('Expression depth limit exceeded', 'DEPTH_LIMIT');
+        try {
+          const args: Node[] = [];
+          if (!this.match(')')) { do { args.push(this.parseOr()); } while (this.match(',')); this.take(')'); }
+          this.count(); return { kind: 'call', name: token.value as 'sum' | 'min' | 'max', args };
+        } finally { this.depth--; }
       }
       const parts = [token.value];
       while (true) {

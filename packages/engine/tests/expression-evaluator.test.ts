@@ -59,6 +59,20 @@ describe('sandboxed expression evaluator', () => {
     expect(() => evaluateExpression(source, {}, { ...options, maxSourceLength: 20_000, maxAstNodes: 10_000, maxDepth: 10 })).toThrow(ExpressionEvaluationError);
   });
 
+  it('bounds nested allowlisted function calls before the parser stack overflows', () => {
+    let source = 'value';
+    for (let index = 0; index < 1_000; index++) source = `sum(values, ${source})`;
+
+    try {
+      evaluateExpression(source, { values: [1], value: 1 }, { ...options, maxSourceLength: 20_000, maxAstNodes: 10_000, maxDepth: 10 });
+      throw new Error('Expected nested function-call depth to be rejected');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ExpressionEvaluationError);
+      expect((error as ExpressionEvaluationError).code).toBe('DEPTH_LIMIT');
+      expect(error).not.toBeInstanceOf(RangeError);
+    }
+  });
+
   it('supports allowlisted aggregates including nested aggregate syntax', () => {
     const context = {
       legs: [
