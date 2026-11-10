@@ -112,6 +112,12 @@ describe('generateCatalogSchema', () => {
     expect(() => generateCatalogSchema(toyPack(catalog))).toThrow(message);
   });
 
+  it.each(['catalog_versions', 'CATALOG_VERSIONS', 'Catalog_Versions'])('rejects entity table collision with generator-owned catalog_versions table: %s', (rawName) => {
+    expect(() => generateCatalogSchema(toyPack(`  ${rawName}: { attributes: { value: text } }`))).toThrow(
+      new RegExp(`catalog entity ${rawName}.*catalog_versions.*generator-owned`, 'i'),
+    );
+  });
+
   it('drops populated foreign-key tables in dependency order independent of names', () => {
     const artifact = generateCatalogSchema(toyPack(`  zparent: { attributes: { value: text }, children: achild }
   achild: { attributes: { value: text }, children: bgrand }

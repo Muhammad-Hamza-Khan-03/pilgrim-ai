@@ -11,6 +11,7 @@ export class CatalogSchemaError extends Error {
 }
 
 const identifierPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const generatorOwnedTableNames = new Set(['catalog_versions']);
 const typeMap: Record<string, SqliteAffinity> = {
   text: 'TEXT', enum: 'TEXT', date: 'TEXT', map: 'TEXT',
   int: 'INTEGER', boolean: 'INTEGER', number: 'REAL', money: 'REAL',
@@ -56,6 +57,11 @@ export function generateCatalogSchema(pack: Pack): CatalogSchemaArtifact {
     entity,
   }));
   assertUnique(entityEntries.map(({ name }) => name), 'catalog entity');
+  for (const { rawName, name } of entityEntries) {
+    if (generatorOwnedTableNames.has(name)) {
+      throw new CatalogSchemaError(`catalog entity ${rawName} collides with normalized reserved name ${name} (generator-owned metadata table)`);
+    }
+  }
   const entityNames = new Set(entityEntries.map(({ name }) => name));
 
   const relationships = new Map<string, string>();
