@@ -6,3 +6,7 @@ export { applySlotUpdates, getMissingSlots, nextAction, parseDeriveRule, SlotPol
 export type { NextAction, SlotDefinition, SlotPack, SlotPolicyOptions, SlotPolicyResult, SlotState, SlotValue } from './slot-policy.js';
 export { MAX_BUNDLE_EXPANSIONS, MAX_CANDIDATES_PER_LEG, recommend, RecommenderError } from './recommender.js';
 export type { Allocation, Catalog, ExplanationFact, Hotel, ObjectiveName, Rate, RecommendationOption, RecommendationRequest, RecommendationResult, RecommenderFilters, Room } from './recommender.js';
+export { DEFAULT_WEIGHTS, PreferenceError, applyPreferenceDelta, normalizePreferenceState } from './preferences.js';
+export type { PreferenceConstraints, PreferenceDelta, PreferenceDirection, PreferenceState, PreferenceWeights } from './preferences.js';
+export { selectFollowUp } from './follow-up.js';
+export type { FollowUpChoice, FollowUpRequest } from './follow-up.js';

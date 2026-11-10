@@ -2,7 +2,7 @@ export type Rate = { price: number; valid_from: string; valid_to: string };
 export type Room = { id: string; room_type: string; capacity: number; rates: readonly Rate[] };
 export type Hotel = { id: string; name: string; city: string; stars: number; distance_m: number; rooms: readonly Room[] };
 export type Catalog = { hotels: readonly Hotel[] };
-export type RecommenderFilters = { cities?: readonly string[]; max_distance_m?: number; min_stars?: number; room_types?: readonly string[] };
+export type RecommenderFilters = { cities?: readonly string[]; max_distance_m?: number; min_distance_m?: number; min_stars?: number; max_stars?: number; room_types?: readonly string[]; max_total_price?: number; min_total_price?: number; max_room_count?: number; min_room_count?: number };
 export type ObjectiveName = 'total_price' | 'distance_m' | 'stars' | 'room_count';
 export type RecommendationRequest = {
   travelers: number;
@@ -87,8 +87,11 @@ function validateRequest(request: RecommendationRequest): void {
   const filters = request.filters;
   if (filters !== undefined) {
     if (!record(filters)) fail('Invalid filters', 'REQUEST_INVALID');
-    if (filters.max_distance_m !== undefined) assertFinite(filters.max_distance_m, 'max_distance_m');
-    if (filters.min_stars !== undefined) assertFinite(filters.min_stars, 'min_stars');
+    for (const key of ['max_distance_m', 'min_distance_m', 'min_stars', 'max_stars', 'max_total_price', 'min_total_price', 'max_room_count', 'min_room_count'] as const) if (filters[key] !== undefined) assertFinite(filters[key], key);
+    if (filters.min_distance_m !== undefined && filters.max_distance_m !== undefined && filters.min_distance_m > filters.max_distance_m) fail('Distance constraints have empty intersection', 'REQUEST_INVALID');
+    if (filters.min_stars !== undefined && filters.max_stars !== undefined && filters.min_stars > filters.max_stars) fail('Star constraints have empty intersection', 'REQUEST_INVALID');
+    if (filters.min_room_count !== undefined && filters.max_room_count !== undefined && filters.min_room_count > filters.max_room_count) fail('Room count constraints have empty intersection', 'REQUEST_INVALID');
+    if (filters.min_total_price !== undefined && filters.max_total_price !== undefined && filters.min_total_price > filters.max_total_price) fail('Price constraints have empty intersection', 'REQUEST_INVALID');
     if (filters.cities !== undefined && (!Array.isArray(filters.cities) || filters.cities.some((city) => typeof city !== 'string'))) fail('Invalid filters', 'REQUEST_INVALID');
     if (filters.room_types !== undefined && (!Array.isArray(filters.room_types) || filters.room_types.some((type) => typeof type !== 'string'))) fail('Invalid filters', 'REQUEST_INVALID');
   }
@@ -141,7 +144,7 @@ function legId(option: LegOption): string { return `${option.hotel.id}:${option.
 
 export function recommend(catalog: Catalog, request: RecommendationRequest): RecommendationResult {
   validateCatalog(catalog); validateRequest(request); const weightsByObjective = weights(request); const hotelsByCity = new Map<string, Hotel[]>();
-  for (const hotel of catalog.hotels) { if (request.filters?.cities && !request.filters.cities.includes(hotel.city)) continue; if (request.filters?.max_distance_m !== undefined && hotel.distance_m > request.filters.max_distance_m) continue; if (request.filters?.min_stars !== undefined && hotel.stars < request.filters.min_stars) continue; hotelsByCity.set(hotel.city, [...(hotelsByCity.get(hotel.city) ?? []), hotel]); }
+  for (const hotel of catalog.hotels) { if (request.filters?.cities && !request.filters.cities.includes(hotel.city)) continue; if (request.filters?.max_distance_m !== undefined && hotel.distance_m > request.filters.max_distance_m) continue; if (request.filters?.min_distance_m !== undefined && hotel.distance_m < request.filters.min_distance_m) continue; if (request.filters?.min_stars !== undefined && hotel.stars < request.filters.min_stars) continue; if (request.filters?.max_stars !== undefined && hotel.stars > request.filters.max_stars) continue; hotelsByCity.set(hotel.city, [...(hotelsByCity.get(hotel.city) ?? []), hotel]); }
   const legs = Object.entries(request.leg_nights); const perLeg: LegOption[][] = [];
   for (let legIndex = 0, elapsed = 0; legIndex < legs.length; legIndex++) {
     const [city, nights] = legs[legIndex]; const candidates: LegOption[] = [];
@@ -170,6 +173,12 @@ export function recommend(catalog: Catalog, request: RecommendationRequest): Rec
     }
     bundles = next;
   }
+  if (request.filters) bundles = bundles.filter((bundle) =>
+    (request.filters?.min_total_price === undefined || bundle.total_price >= request.filters.min_total_price) &&
+    (request.filters?.max_total_price === undefined || bundle.total_price <= request.filters.max_total_price) &&
+    (request.filters?.min_room_count === undefined || bundle.room_count >= request.filters.min_room_count) &&
+    (request.filters?.max_room_count === undefined || bundle.room_count <= request.filters.max_room_count));
+  if (!bundles.length) fail('No bundle satisfies hard constraints', 'NO_CANDIDATES');
   const ranges: Record<ObjectiveName, { min: number; max: number }> = Object.fromEntries(OBJECTIVES.map((objective) => { const values = bundles.map((b) => b[objective]); if (values.some((value) => !Number.isFinite(value))) fail(`Non-finite ${objective} value`, 'RECOMMENDER_INVALID'); return [objective, { min: Math.min(...values), max: Math.max(...values) }]; })) as Record<ObjectiveName, { min: number; max: number }>;
   for (const bundle of bundles) {
     bundle.score = OBJECTIVES.reduce((score, objective) => {

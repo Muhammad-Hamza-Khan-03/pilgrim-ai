@@ -47,6 +47,13 @@ describe('bounded in-memory recommender', () => {
     expect(result.options.every((option) => option.score >= 0 && option.score <= 1)).toBe(true);
   });
 
+  it('applies inclusive bundle-level price and room-count bounds', () => {
+    const result = recommend(catalog, { ...request, filters: { min_total_price: 100, max_total_price: 100, min_room_count: 1, max_room_count: 1 } });
+    expect(result.options).toHaveLength(1);
+    expect(result.options[0].total_price).toBe(100);
+    expect(result.options[0].room_count).toBe(1);
+  });
+
   it('returns an exact bounded score for a single option', () => {
     const oneHotel: Catalog = { hotels: [catalog.hotels[0]] };
     const result = recommend(oneHotel, request);
