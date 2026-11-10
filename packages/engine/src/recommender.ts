@@ -10,6 +10,7 @@ export type RecommendationRequest = {
   leg_nights: Record<string, number>;
   filters?: RecommenderFilters;
   objectives?: Partial<Record<ObjectiveName, number>>;
+  directions?: Partial<Record<ObjectiveName, 'min' | 'max'>>;
   result_count?: number;
   diversity?: number;
 };
@@ -156,7 +157,9 @@ export function recommend(catalog: Catalog, request: RecommendationRequest): Rec
       }
     }
     elapsed += nights;
-    const front = pareto(candidates).sort((a, b) => a.total - b.total || a.hotel.distance_m - b.hotel.distance_m || b.hotel.stars - a.hotel.stars || a.allocation.length - b.allocation.length || legId(a).localeCompare(legId(b))).slice(0, MAX_CANDIDATES_PER_LEG);
+    const front = (request.filters?.min_total_price !== undefined || request.filters?.max_total_price !== undefined || request.filters?.min_room_count !== undefined || request.filters?.max_room_count !== undefined
+      ? candidates.sort((a, b) => a.total - b.total || a.hotel.distance_m - b.hotel.distance_m || b.hotel.stars - a.hotel.stars || a.allocation.length - b.allocation.length || legId(a).localeCompare(legId(b)))
+      : pareto(candidates).sort((a, b) => a.total - b.total || a.hotel.distance_m - b.hotel.distance_m || b.hotel.stars - a.hotel.stars || a.allocation.length - b.allocation.length || legId(a).localeCompare(legId(b)))).slice(0, MAX_CANDIDATES_PER_LEG);
     if (!front.length) fail(`No exact-capacity candidate for ${city}`, 'NO_CANDIDATES');
     perLeg.push(front);
   }
@@ -182,7 +185,7 @@ export function recommend(catalog: Catalog, request: RecommendationRequest): Rec
   const ranges: Record<ObjectiveName, { min: number; max: number }> = Object.fromEntries(OBJECTIVES.map((objective) => { const values = bundles.map((b) => b[objective]); if (values.some((value) => !Number.isFinite(value))) fail(`Non-finite ${objective} value`, 'RECOMMENDER_INVALID'); return [objective, { min: Math.min(...values), max: Math.max(...values) }]; })) as Record<ObjectiveName, { min: number; max: number }>;
   for (const bundle of bundles) {
     bundle.score = OBJECTIVES.reduce((score, objective) => {
-      const range = ranges[objective]; const raw = range.max === range.min ? 1 : (objective === 'stars' ? (bundle[objective] - range.min) / (range.max - range.min) : (range.max - bundle[objective]) / (range.max - range.min));
+      const range = ranges[objective]; const direction = request.directions?.[objective] ?? (objective === 'stars' ? 'max' : 'min'); const raw = range.max === range.min ? 1 : (direction === 'max' ? (bundle[objective] - range.min) / (range.max - range.min) : (range.max - bundle[objective]) / (range.max - range.min));
       if (!Number.isFinite(raw)) fail(`Non-finite normalized ${objective} score`, 'RECOMMENDER_INVALID');
       const normalized = Math.min(1, Math.max(0, raw)); const contribution = weightsByObjective[objective] * normalized; const nextScore = score + contribution;
       if (!Number.isFinite(contribution) || !Number.isFinite(nextScore)) fail('Non-finite recommendation score', 'RECOMMENDER_INVALID');

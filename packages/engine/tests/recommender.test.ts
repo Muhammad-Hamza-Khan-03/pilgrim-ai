@@ -54,6 +54,23 @@ describe('bounded in-memory recommender', () => {
     expect(result.options[0].room_count).toBe(1);
   });
 
+  it('applies bundle hard bounds before per-leg Pareto pruning', () => {
+    const constrained: Catalog = { hotels: [
+      { id: 'one-room', name: 'One room', city: 'Makkah', stars: 4, distance_m: 100, rooms: [{ id: 'one', room_type: 'five', capacity: 5, rates: [{ price: 50, valid_from: '2099-01-01', valid_to: '2099-01-31' }] }] },
+      { id: 'two-room', name: 'Two rooms', city: 'Makkah', stars: 4, distance_m: 100, rooms: [{ id: 'two-a', room_type: 'double', capacity: 3, rates: [{ price: 20, valid_from: '2099-01-01', valid_to: '2099-01-31' }] }, { id: 'two-b', room_type: 'double', capacity: 2, rates: [{ price: 20, valid_from: '2099-01-01', valid_to: '2099-01-31' }] }] },
+    ] };
+    const result = recommend(constrained, { ...request, filters: { min_room_count: 2 } });
+    expect(result.options).toHaveLength(1);
+    expect(result.options[0].hotel_ids).toEqual(['two-room']);
+  });
+
+  it('ranks min and max directions oppositely for the same objective weights', () => {
+    const min = recommend(catalog, { ...request, result_count: 1, objectives: { total_price: 1 }, directions: { total_price: 'min' } });
+    const max = recommend(catalog, { ...request, result_count: 1, objectives: { total_price: 1 }, directions: { total_price: 'max' } });
+    expect(min.options[0].hotel_ids).toEqual(['makkah-far']);
+    expect(max.options[0].hotel_ids).toEqual(['makkah-near']);
+  });
+
   it('returns an exact bounded score for a single option', () => {
     const oneHotel: Catalog = { hotels: [catalog.hotels[0]] };
     const result = recommend(oneHotel, request);

@@ -3,11 +3,13 @@ import type { ObjectiveName, RecommenderFilters } from './recommender.js';
 export type PreferenceDirection = 'min' | 'max';
 export type PreferenceConstraints = RecommenderFilters;
 export type PreferenceWeights = Record<ObjectiveName, number>;
-export type PreferenceState = { weights: PreferenceWeights; constraints: PreferenceConstraints };
+export type PreferenceDirections = Partial<Record<ObjectiveName, PreferenceDirection>>;
+export type PreferenceState = { weights: PreferenceWeights; constraints: PreferenceConstraints; directions?: PreferenceDirections };
 export type PreferenceDelta = { attribute: ObjectiveName; direction: PreferenceDirection; strength: number; hard_value?: number };
 
 const OBJECTIVES: readonly ObjectiveName[] = ['total_price', 'distance_m', 'stars', 'room_count'];
 const DEFAULT_WEIGHTS: PreferenceWeights = { total_price: 0.4, distance_m: 0.3, stars: 0.2, room_count: 0.1 };
+const DEFAULT_DIRECTIONS: Record<ObjectiveName, PreferenceDirection> = { total_price: 'min', distance_m: 'min', stars: 'max', room_count: 'min' };
 const CONSTRAINT_KEY: Record<ObjectiveName, { min: keyof PreferenceConstraints; max: keyof PreferenceConstraints }> = {
   total_price: { min: 'min_total_price', max: 'max_total_price' },
   distance_m: { min: 'min_distance_m', max: 'max_distance_m' },
@@ -29,8 +31,20 @@ export function normalizePreferenceState(state?: Partial<PreferenceState>): Pref
   if (!finite(sum) || sum <= 0) fail('Preference weights must have a positive sum', 'PREFERENCE_ALL_ZERO');
   const weights = Object.fromEntries(OBJECTIVES.map((objective) => [objective, raw[objective] / sum])) as PreferenceWeights;
   const constraints = { ...(state?.constraints ?? {}) } as PreferenceConstraints;
-  for (const [key, value] of Object.entries(constraints)) if (!['cities', 'room_types'].includes(key) && !finite(value)) fail(`Constraint ${key} must be finite`);
-  return { weights, constraints };
+  const constraintKeys = new Set(Object.values(CONSTRAINT_KEY).flatMap((keys) => [keys.min, keys.max]));
+  for (const [key, value] of Object.entries(constraints)) {
+    if (key === 'cities' || key === 'room_types') {
+      if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) fail(`Constraint ${key} must be a string array`);
+    } else if (!constraintKeys.has(key as keyof PreferenceConstraints) || !finite(value)) fail(`Constraint ${key} must be finite`);
+  }
+  for (const bounds of Object.values(CONSTRAINT_KEY)) {
+    const low = constraints[bounds.min] as number | undefined;
+    const high = constraints[bounds.max] as number | undefined;
+    if (low !== undefined && high !== undefined && low > high) fail(`${bounds.min} must not exceed ${bounds.max}`);
+  }
+  const directions = { ...DEFAULT_DIRECTIONS, ...(state?.directions ?? {}) } as Record<ObjectiveName, PreferenceDirection>;
+  if (Object.keys(directions).some((key) => !OBJECTIVES.includes(key as ObjectiveName) || (directions[key as ObjectiveName] !== 'min' && directions[key as ObjectiveName] !== 'max'))) fail('Preference directions are invalid');
+  return { weights, constraints, directions };
 }
 
 export function applyPreferenceDelta(state: PreferenceState, delta: PreferenceDelta): PreferenceState {
@@ -50,7 +64,7 @@ export function applyPreferenceDelta(state: PreferenceState, delta: PreferenceDe
     const high = constraints[bounds.max] as number | undefined;
     if (low !== undefined && high !== undefined && low > high) fail('Hard preference constraints have empty intersection');
   }
-  return normalizePreferenceState({ weights, constraints });
+  return normalizePreferenceState({ weights, constraints, directions: { ...current.directions, [delta.attribute]: delta.direction } });
 }
 
 export { DEFAULT_WEIGHTS };
