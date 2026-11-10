@@ -1,0 +1,25 @@
+City,Hotel Name,Period From,Period To,DBL(for 2 persons),TRP (for 3 persons),QUAD (for 4 persons),Suite for 5 Persons,Meal Plan,Category
+Makkah Mukarramah,Marwa Rotana,01/09/2025,15/12/2025,750,900,1100,1350,Breakfast,5
+Makkah Mukarramah,Marwa Rotana,16/12/2025,05/01/2026,950,1200,1550,1900,Breakfast,5
+Makkah Mukarramah,Marwa Rotana,06/01/2026,25/02/2026,850,1100,1450,1800,Breakfast,5
+Makkah Mukarramah,Anjum Hotel,01/09/2025,15/12/2025,450,700,1050,1400,Breakfast,5
+Makkah Mukarramah,Anjum Hotel,16/12/2025,05/01/2026,650,900,1250,1600,Breakfast,5
+Makkah Mukarramah,Anjum Hotel,06/01/2026,25/02/2026,550,800,1150,1500,Breakfast,5
+Makkah Mukarramah,Saja Makkah,01/09/2025,15/12/2025,200,450,800,1150,Room only,3
+Makkah Mukarramah,Saja Makkah,16/12/2025,05/01/2026,350,600,950,1300,Room only,3
+Makkah Mukarramah,Saja Makkah,06/01/2026,25/02/2026,275,525,875,1225,Room only,3
+Makkah Mukarramah,Emaar Grand Makkah,01/09/2025,15/12/2025,375,625,825,1075,Breakfast,2
+Makkah Mukarramah,Emaar Grand Makkah,16/12/2025,05/01/2026,590,840,1090,1340,Room only,2
+Makkah Mukarramah,Emaar Grand Makkah,06/01/2026,25/02/2026,450,700,900,1150,Breakfast,2
+Madinah Munawarrah,Maysan al Harhia,01/09/2025,15/12/2025,700,950,1150,1400,Breakfast,4
+Madinah Munawarrah,Maysan al Harhia,16/12/2025,05/01/2026,900,1150,1400,1650,Breakfast,4
+Madinah Munawarrah,Maysan al Harhia,06/01/2026,25/02/2026,800,1050,1250,1500,Breakfast,4
+Madinah Munawarrah,Shaza Regency,01/09/2025,15/12/2025,400,650,850,1100,Breakfast,3
+Madinah Munawwarrah,Shaza Regency,16/12/2025,05/01/2026,500,750,1000,1250,Room only,3
+Madinah Munawwarrah,Shaza Regency,06/01/2026,25/02/2026,500,750,950,1200,Breakfast,3
+Madinah Munawwarrah,Darul Taqwa,01/09/2025,15/12/2025,900,1150,,1500,Breakfast,5
+Madinah Munawwarrah,Darul Taqwa,16/12/2025,05/01/2026,1200,1450,,2000,Breakfast,5
+Madinah Munawwarrah,Darul Taqwa,06/01/2026,25/02/2026,1000,1250,,1750,Breakfast,5
+Madinah Munawwarrah,Taiba Madinah,01/09/2025,15/12/2025,650,900,1100,1350,Breakfast,4
+Madinah Munawwarrah,Taiba Madinah,16/12/2025,05/01/2026,850,1100,1350,1600,Breakfast,4
+Madinah Munawwarrah,Taiba Madinah,06/01/2026,25/02/2026,750,1000,1200,1450,Breakfast,4

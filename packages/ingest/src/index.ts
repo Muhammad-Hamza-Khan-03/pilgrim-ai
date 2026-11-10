@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import type { CatalogSchemaArtifact } from '../../catalog-schema/src/types.js';
 import type { Pack } from '../../engine/src/index.js';
+export { parseActualUmrahRates, ACTUAL_UMRAH_HEADERS } from './actual-umrah.js';
+export type { ActualUmrahRateRow, ActualUmrahRates, ShadowDate } from './actual-umrah.js';
 
 export interface SourceArtifact {
   sourceId: string;
