@@ -64,6 +64,36 @@ describe('bounded in-memory recommender', () => {
     expect(result.options[0].hotel_ids).toEqual(['two-room']);
   });
 
+  it.each([
+    MAX_CANDIDATES_PER_LEG - 1,
+    MAX_CANDIDATES_PER_LEG,
+  ])('keeps the first feasible candidate at the %i-th position after leg-local feasibility filtering', (invalidCount) => {
+    const hotels = [
+      ...Array.from({ length: invalidCount }, (_, index) => ({
+        id: `invalid-${index}`,
+        name: `Invalid ${index}`,
+        city: 'Makkah',
+        stars: 5,
+        distance_m: index + 1,
+        rooms: [{ id: `invalid-room-${index}`, room_type: 'five', capacity: 5, rates: [{ price: 40, valid_from: '2099-01-01', valid_to: '2099-01-31' }] }],
+      })),
+      {
+        id: 'feasible-two-room',
+        name: 'Feasible two room',
+        city: 'Makkah',
+        stars: 5,
+        distance_m: invalidCount + 1,
+        rooms: [
+          { id: 'feasible-room-a', room_type: 'double', capacity: 3, rates: [{ price: 20, valid_from: '2099-01-01', valid_to: '2099-01-31' }] },
+          { id: 'feasible-room-b', room_type: 'double', capacity: 2, rates: [{ price: 20, valid_from: '2099-01-01', valid_to: '2099-01-31' }] },
+        ],
+      },
+    ];
+    const result = recommend({ hotels }, { ...request, filters: { min_room_count: 2 } });
+    expect(result.options).toHaveLength(1);
+    expect(result.options[0].hotel_ids).toEqual(['feasible-two-room']);
+  });
+
   it('ranks min and max directions oppositely for the same objective weights', () => {
     const min = recommend(catalog, { ...request, result_count: 1, objectives: { total_price: 1 }, directions: { total_price: 'min' } });
     const max = recommend(catalog, { ...request, result_count: 1, objectives: { total_price: 1 }, directions: { total_price: 'max' } });

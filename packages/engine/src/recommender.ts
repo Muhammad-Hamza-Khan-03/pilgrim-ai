@@ -142,11 +142,27 @@ function weights(request: RecommendationRequest): Record<ObjectiveName, number> 
 function distance(a: RecommendationOption, b: RecommendationOption): number { return a.hotel_ids.some((id) => !b.hotel_ids.includes(id)) || a.allocation.some((x) => !b.allocation.some((y) => y.room_type === x.room_type)) ? 1 : 0; }
 
 function legId(option: LegOption): string { return `${option.hotel.id}:${option.allocation.map((room) => room.room_id).join('+')}`; }
+function roomCount(option: LegOption): number { return option.allocation.reduce((sum, room) => sum + room.quantity, 0); }
+function feasibleWithOtherLegs(option: LegOption, legIndex: number, candidatesByLeg: readonly (readonly LegOption[])[], filters?: RecommenderFilters): boolean {
+  const other = candidatesByLeg.filter((_, index) => index !== legIndex).flat();
+  const minOtherPrice = candidatesByLeg.reduce((sum, candidates, index) => index === legIndex ? sum : sum + Math.min(...candidates.map((candidate) => candidate.total)), 0);
+  const maxOtherPrice = candidatesByLeg.reduce((sum, candidates, index) => index === legIndex ? sum : sum + Math.max(...candidates.map((candidate) => candidate.total)), 0);
+  const minOtherRooms = candidatesByLeg.reduce((sum, candidates, index) => index === legIndex ? sum : sum + Math.min(...candidates.map(roomCount)), 0);
+  const maxOtherRooms = candidatesByLeg.reduce((sum, candidates, index) => index === legIndex ? sum : sum + Math.max(...candidates.map(roomCount)), 0);
+  if (!other.length) return (filters?.min_total_price === undefined || option.total >= filters.min_total_price) &&
+    (filters?.max_total_price === undefined || option.total <= filters.max_total_price) &&
+    (filters?.min_room_count === undefined || roomCount(option) >= filters.min_room_count) &&
+    (filters?.max_room_count === undefined || roomCount(option) <= filters.max_room_count);
+  return (filters?.min_total_price === undefined || option.total + maxOtherPrice >= filters.min_total_price) &&
+    (filters?.max_total_price === undefined || option.total + minOtherPrice <= filters.max_total_price) &&
+    (filters?.min_room_count === undefined || roomCount(option) + maxOtherRooms >= filters.min_room_count) &&
+    (filters?.max_room_count === undefined || roomCount(option) + minOtherRooms <= filters.max_room_count);
+}
 
 export function recommend(catalog: Catalog, request: RecommendationRequest): RecommendationResult {
   validateCatalog(catalog); validateRequest(request); const weightsByObjective = weights(request); const hotelsByCity = new Map<string, Hotel[]>();
   for (const hotel of catalog.hotels) { if (request.filters?.cities && !request.filters.cities.includes(hotel.city)) continue; if (request.filters?.max_distance_m !== undefined && hotel.distance_m > request.filters.max_distance_m) continue; if (request.filters?.min_distance_m !== undefined && hotel.distance_m < request.filters.min_distance_m) continue; if (request.filters?.min_stars !== undefined && hotel.stars < request.filters.min_stars) continue; if (request.filters?.max_stars !== undefined && hotel.stars > request.filters.max_stars) continue; hotelsByCity.set(hotel.city, [...(hotelsByCity.get(hotel.city) ?? []), hotel]); }
-  const legs = Object.entries(request.leg_nights); const perLeg: LegOption[][] = [];
+  const legs = Object.entries(request.leg_nights); const candidateStreams: LegOption[][] = [];
   for (let legIndex = 0, elapsed = 0; legIndex < legs.length; legIndex++) {
     const [city, nights] = legs[legIndex]; const candidates: LegOption[] = [];
     for (const hotel of hotelsByCity.get(city) ?? []) {
@@ -156,13 +172,16 @@ export function recommend(catalog: Catalog, request: RecommendationRequest): Rec
         candidates.push({ city, hotel, allocation, total });
       }
     }
-    elapsed += nights;
-    const front = (request.filters?.min_total_price !== undefined || request.filters?.max_total_price !== undefined || request.filters?.min_room_count !== undefined || request.filters?.max_room_count !== undefined
-      ? candidates.sort((a, b) => a.total - b.total || a.hotel.distance_m - b.hotel.distance_m || b.hotel.stars - a.hotel.stars || a.allocation.length - b.allocation.length || legId(a).localeCompare(legId(b)))
-      : pareto(candidates).sort((a, b) => a.total - b.total || a.hotel.distance_m - b.hotel.distance_m || b.hotel.stars - a.hotel.stars || a.allocation.length - b.allocation.length || legId(a).localeCompare(legId(b)))).slice(0, MAX_CANDIDATES_PER_LEG);
-    if (!front.length) fail(`No exact-capacity candidate for ${city}`, 'NO_CANDIDATES');
-    perLeg.push(front);
+    elapsed += nights; candidateStreams.push(candidates);
   }
+  const perLeg: LegOption[][] = candidateStreams.map((candidates, legIndex) => {
+    const feasible = candidates.filter((candidate) => feasibleWithOtherLegs(candidate, legIndex, candidateStreams, request.filters));
+    const front = (request.filters?.min_total_price !== undefined || request.filters?.max_total_price !== undefined || request.filters?.min_room_count !== undefined || request.filters?.max_room_count !== undefined
+      ? feasible.sort((a, b) => a.total - b.total || a.hotel.distance_m - b.hotel.distance_m || b.hotel.stars - a.hotel.stars || a.allocation.length - b.allocation.length || legId(a).localeCompare(legId(b)))
+      : pareto(feasible).sort((a, b) => a.total - b.total || a.hotel.distance_m - b.hotel.distance_m || b.hotel.stars - a.hotel.stars || a.allocation.length - b.allocation.length || legId(a).localeCompare(legId(b)))).slice(0, MAX_CANDIDATES_PER_LEG);
+    if (!front.length) fail(`No exact-capacity candidate for ${candidates[0]?.city ?? legs[legIndex][0]}`, 'NO_CANDIDATES');
+    return front;
+  });
   let bundles: RecommendationOption[] = [{ id: '', hotel_ids: [], hotel_names: [], cities: [], allocation: [], total_price: 0, room_count: 0, distance_m: 0, stars: 0, score: 0, explanation_facts: [] }];
   for (const legOptions of perLeg) {
     if (bundles.length > Math.floor(MAX_BUNDLE_EXPANSIONS / legOptions.length)) fail('Bundle expansion limit exceeded', 'BOUNDS_EXCEEDED');
