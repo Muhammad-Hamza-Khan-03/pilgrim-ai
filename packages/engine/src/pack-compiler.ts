@@ -15,7 +15,7 @@ const attributeSchema = z.union([
 ]);
 
 const catalogEntitySchema = z.object({
-  attributes: z.record(attributeSchema),
+  attributes: z.record(z.string(), attributeSchema),
   children: z.string().optional(),
 }).passthrough();
 
@@ -52,26 +52,26 @@ export const packSchema = z.object({
     tone: z.string().min(1),
     currency: z.string().min(1),
   }).passthrough(),
-  catalog: z.record(catalogEntitySchema).refine((catalog) => Object.keys(catalog).length > 0, {
+  catalog: z.record(z.string(), catalogEntitySchema).refine((catalog) => Object.keys(catalog).length > 0, {
     message: 'catalog must contain at least one entity',
   }),
-  slots: z.record(slotSchema).refine((slots) => Object.keys(slots).length > 0, {
+  slots: z.record(z.string(), slotSchema).refine((slots) => Object.keys(slots).length > 0, {
     message: 'slots must contain at least one slot',
   }),
   rules: z.array(ruleSchema),
-  bundle: z.record(z.unknown()).refine((bundle) => Object.keys(bundle).length > 0, {
+  bundle: z.record(z.string(), z.unknown()).refine((bundle) => Object.keys(bundle).length > 0, {
     message: 'bundle must not be empty',
   }),
-  objectives: z.record(objectiveSchema).refine((objectives) => Object.keys(objectives).length > 0, {
+  objectives: z.record(z.string(), objectiveSchema).refine((objectives) => Object.keys(objectives).length > 0, {
     message: 'objectives must contain at least one objective',
   }),
   results: z.object({
     count: z.number().int().positive(),
     diversity: z.number().min(0).max(1),
   }).passthrough(),
-  llm: z.record(z.unknown()).optional(),
-  handoff: z.record(z.unknown()).optional(),
-  knowledge: z.record(z.unknown()).optional(),
+  llm: z.record(z.string(), z.unknown()).optional(),
+  handoff: z.record(z.string(), z.unknown()).optional(),
+  knowledge: z.record(z.string(), z.unknown()).optional(),
 }).passthrough();
 
 export type Pack = z.infer<typeof packSchema>;
