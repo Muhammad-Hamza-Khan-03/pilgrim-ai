@@ -3,6 +3,20 @@ import type { CatalogSchemaArtifact } from '../../catalog-schema/src/types.js';
 import type { Pack } from '../../engine/src/index.js';
 export { parseActualUmrahRates, ACTUAL_UMRAH_HEADERS } from './actual-umrah.js';
 export type { ActualUmrahRateRow, ActualUmrahRates, ShadowDate } from './actual-umrah.js';
+export {
+  ACTUAL_UMRAH_CITY_ALIASES,
+  ACTUAL_UMRAH_OCCUPANCY_MAPPINGS,
+  mapActualUmrahRatesToCanonical,
+} from './actual-umrah-canonical.js';
+export type {
+  ActualUmrahCanonicalStaging,
+  BlankCellLedgerEntry,
+  CanonicalHotel,
+  CanonicalPeriod,
+  CanonicalRate,
+  CanonicalRoom,
+  CanonicalSourceRef,
+} from './actual-umrah-canonical.js';
 
 export interface SourceArtifact {
   sourceId: string;
