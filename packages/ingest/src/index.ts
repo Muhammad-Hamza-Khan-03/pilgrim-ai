@@ -30,6 +30,25 @@ export type {
   StagingDiffResult,
   StagingEntityDiff,
 } from './staging-diff.js';
+export {
+  createPublishPlan,
+  createReview,
+  createRollbackPlan,
+  createVersionLifecycle,
+  serializeVersionLifecycle,
+  VersionLifecycleError,
+} from './version-lifecycle.js';
+export type {
+  PublishPlan,
+  ReviewRequest,
+  ReviewStatus,
+  RollbackPlan,
+  RollbackRequest,
+  VersionLifecycle,
+  VersionManifest,
+  VersionReview,
+  VersionedEntity,
+} from './version-lifecycle.js';
 
 export interface SourceArtifact {
   sourceId: string;
