@@ -127,6 +127,12 @@ function sourceRef(source: ActualUmrahRates, row: ActualUmrahRateRow): Canonical
   };
 }
 
+function compareRows(left: ActualUmrahRateRow, right: ActualUmrahRateRow): number {
+  return left.rowNumber - right.rowNumber
+    || left.raw.localeCompare(right.raw)
+    || JSON.stringify(left.rawValues).localeCompare(JSON.stringify(right.rawValues));
+}
+
 export function mapActualUmrahRatesToCanonical(source: ActualUmrahRates): ActualUmrahCanonicalStaging {
   const hotels: CanonicalHotel[] = [];
   const hotelByKey = new Map<string, CanonicalHotel>();
@@ -135,8 +141,11 @@ export function mapActualUmrahRatesToCanonical(source: ActualUmrahRates): Actual
   const periods: CanonicalPeriod[] = [];
   const periodKeys = new Set<string>();
   const blankCells: BlankCellLedgerEntry[] = [];
+  const rateOccurrences = new Map<string, number>();
 
-  for (const row of source.rows) {
+  // Sort by source provenance, not caller iteration order. This also makes the
+  // first row a deterministic representative for hotel/room/period provenance.
+  for (const row of [...source.rows].sort(compareRows)) {
     const mappedCity = city(row.city);
     const hotelKey = `${mappedCity}\u0000${row.hotelName}`;
     let hotel = hotelByKey.get(hotelKey);
@@ -201,8 +210,22 @@ export function mapActualUmrahRatesToCanonical(source: ActualUmrahRates): Actual
       const price = row.occupancyValues[mapping.column];
       if (price === null) throw new Error(`ACTUAL_UMRAH_INVALID: ${mapping.column} is blank but raw value is nonblank`);
       const ref = sourceRef(source, row);
+      const contentKey = JSON.stringify([
+        hotelKey,
+        mapping.roomType,
+        row.periodFrom.iso,
+        row.periodTo.iso,
+        row.periodFrom.raw,
+        row.periodTo.raw,
+        row.city,
+        row.hotelName,
+        row.mealPlan,
+        price,
+      ]);
+      const occurrence = rateOccurrences.get(contentKey) ?? 0;
+      rateOccurrences.set(contentKey, occurrence + 1);
       const rate: CanonicalRate = {
-        id: stableId('rate', room.id, String(row.rowNumber)),
+        id: stableId('rate', contentKey, String(occurrence)),
         hotelId: hotel.id,
         roomId: room.id,
         hotelName: hotel.name,

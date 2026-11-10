@@ -72,6 +72,26 @@ const source = parseActualUmrahRates(createSourceArtifact(new Uint8Array(fixture
     expect(result.blankCells.every((cell) => cell.reason === 'unavailable')).toBe(true);
   });
 
+  it('is invariant to source row permutation while preserving each row provenance', () => {
+    const expected = mapActualUmrahRatesToCanonical(source);
+    const reverse = { ...source, rows: [...source.rows].reverse() };
+    const shuffled = { ...source, rows: [...source.rows].sort((left, right) => left.raw.localeCompare(right.raw)) };
+
+    expect(mapActualUmrahRatesToCanonical(reverse)).toEqual(expected);
+    expect(mapActualUmrahRatesToCanonical(shuffled)).toEqual(expected);
+  });
+
+  it('assigns unique deterministic IDs to duplicate semantic rates', () => {
+    const duplicate = { ...source.rows[0], rowNumber: 26 };
+    const withDuplicate = { ...source, rows: [...source.rows, duplicate] };
+    const result = mapActualUmrahRatesToCanonical(withDuplicate);
+    const reversed = mapActualUmrahRatesToCanonical({ ...withDuplicate, rows: [...withDuplicate.rows].reverse() });
+    const rateIds = result.rates.map((rate) => rate.id);
+
+    expect(new Set(rateIds).size).toBe(rateIds.length);
+    expect(reversed).toEqual(result);
+  });
+
   it('is byte-for-byte deterministic for repeated mapping', () => {
     expect(mapActualUmrahRatesToCanonical(source)).toEqual(mapActualUmrahRatesToCanonical(source));
   });
