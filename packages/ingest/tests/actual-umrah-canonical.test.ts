@@ -92,6 +92,44 @@ const source = parseActualUmrahRates(createSourceArtifact(new Uint8Array(fixture
     expect(reversed).toEqual(result);
   });
 
+  it('uses raw/provenance fallback when duplicate rows share a row number', () => {
+    const duplicateRowNumber = source.rows[1].rowNumber;
+    const withTiedRowNumber = {
+      ...source,
+      rows: [{ ...source.rows[0], rowNumber: duplicateRowNumber }, ...source.rows],
+    };
+    const result = mapActualUmrahRatesToCanonical(withTiedRowNumber);
+    const reversed = mapActualUmrahRatesToCanonical({
+      ...withTiedRowNumber,
+      rows: [...withTiedRowNumber.rows].reverse(),
+    });
+
+    expect(new Set(result.rates.map((rate) => rate.id)).size).toBe(result.rates.length);
+    expect(reversed).toEqual(result);
+  });
+
+  it('keeps existing rate IDs stable when an earlier semantic duplicate is inserted', () => {
+    const baseline = mapActualUmrahRatesToCanonical(source);
+    const earlierDuplicate = { ...source.rows[0], rowNumber: 1 };
+    const withEarlierDuplicate = mapActualUmrahRatesToCanonical({
+      ...source,
+      rows: [earlierDuplicate, ...source.rows],
+    });
+
+    const baselineIdsByRow = new Map(
+      baseline.rates.map((rate) => [rate.source.rowNumber, rate.id]),
+    );
+    const insertedIdsByRow = new Map(
+      withEarlierDuplicate.rates.map((rate) => [rate.source.rowNumber, rate.id]),
+    );
+
+    for (const [rowNumber, id] of baselineIdsByRow) {
+      expect(insertedIdsByRow.get(rowNumber)).toBe(id);
+    }
+    expect(new Set(withEarlierDuplicate.rates.map((rate) => rate.id)).size)
+      .toBe(withEarlierDuplicate.rates.length);
+  });
+
   it('is byte-for-byte deterministic for repeated mapping', () => {
     expect(mapActualUmrahRatesToCanonical(source)).toEqual(mapActualUmrahRatesToCanonical(source));
   });

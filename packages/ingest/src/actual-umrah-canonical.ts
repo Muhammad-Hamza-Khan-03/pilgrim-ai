@@ -141,11 +141,16 @@ export function mapActualUmrahRatesToCanonical(source: ActualUmrahRates): Actual
   const periods: CanonicalPeriod[] = [];
   const periodKeys = new Set<string>();
   const blankCells: BlankCellLedgerEntry[] = [];
-  const rateOccurrences = new Map<string, number>();
+  const sortedRows = [...source.rows].sort(compareRows);
+  const rowNumberCounts = new Map<number, number>();
+  for (const row of sortedRows) {
+    rowNumberCounts.set(row.rowNumber, (rowNumberCounts.get(row.rowNumber) ?? 0) + 1);
+  }
+  const duplicateProvenanceOccurrences = new Map<string, number>();
 
   // Sort by source provenance, not caller iteration order. This also makes the
   // first row a deterministic representative for hotel/room/period provenance.
-  for (const row of [...source.rows].sort(compareRows)) {
+  for (const row of sortedRows) {
     const mappedCity = city(row.city);
     const hotelKey = `${mappedCity}\u0000${row.hotelName}`;
     let hotel = hotelByKey.get(hotelKey);
@@ -210,22 +215,14 @@ export function mapActualUmrahRatesToCanonical(source: ActualUmrahRates): Actual
       const price = row.occupancyValues[mapping.column];
       if (price === null) throw new Error(`ACTUAL_UMRAH_INVALID: ${mapping.column} is blank but raw value is nonblank`);
       const ref = sourceRef(source, row);
-      const contentKey = JSON.stringify([
-        hotelKey,
-        mapping.roomType,
-        row.periodFrom.iso,
-        row.periodTo.iso,
-        row.periodFrom.raw,
-        row.periodTo.raw,
-        row.city,
-        row.hotelName,
-        row.mealPlan,
-        price,
-      ]);
-      const occurrence = rateOccurrences.get(contentKey) ?? 0;
-      rateOccurrences.set(contentKey, occurrence + 1);
+      const rowProvenanceKey = `${row.rowNumber}\u0000${row.raw}\u0000${JSON.stringify(row.rawValues)}`;
+      const occurrence = duplicateProvenanceOccurrences.get(rowProvenanceKey) ?? 0;
+      duplicateProvenanceOccurrences.set(rowProvenanceKey, occurrence + 1);
+      const rateId = rowNumberCounts.get(row.rowNumber) === 1
+        ? stableId('rate', room.id, String(row.rowNumber))
+        : stableId('rate', room.id, rowProvenanceKey, String(occurrence));
       const rate: CanonicalRate = {
-        id: stableId('rate', contentKey, String(occurrence)),
+        id: rateId,
         hotelId: hotel.id,
         roomId: room.id,
         hotelName: hotel.name,
