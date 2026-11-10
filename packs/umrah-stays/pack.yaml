@@ -1,0 +1,49 @@
+pack: umrah-stays
+version: 1
+locale:
+  default: en
+  supported: [en]
+persona:
+  tone: warm, concise, respectful
+  currency: SAR
+  provisional: true
+  price_basis: per room per night
+catalog:
+  hotel:
+    attributes:
+      name: { type: text }
+      city: { type: enum, values_from: data }
+      stars: { type: int, better: higher }
+      distance_m: { type: int, better: lower }
+    children: room
+  room:
+    attributes:
+      room_type: { type: text }
+      capacity: { type: int, role: capacity }
+    children: rate
+  rate:
+    attributes:
+      price: { type: money, role: unit_price, per: night }
+      valid_from: { type: date, role: valid_from }
+      valid_to: { type: date, role: valid_to }
+slots:
+  travelers: { type: int, min: 1, required: true, describe: how many people are travelling }
+  start_date: { type: date, required: true, future: true, describe: check-in date of the first stay }
+  total_nights: { type: int, min: 1, required: true, describe: total nights of the trip }
+  leg_nights: { type: map, required: true, keys_from: bundle.legs, describe: nights in each city }
+  budget_total: { type: money, required: false, min: 0, describe: total stay budget }
+rules:
+  - check: sum(leg_nights) == total_nights
+  - derive: leg_nights[missing] = total_nights - sum(leg_nights)
+bundle:
+  legs: { group_by: hotel.city }
+  allocation: { demand: slot.travelers, supply: room.capacity }
+  price: sum(legs, sum(allocation, sum(nights, rate.price)))
+objectives:
+  total_price: { direction: min, weight: 0.4 }
+  distance_m: { direction: min, weight: 0.3 }
+  stars: { direction: max, weight: 0.2 }
+  room_count: { direction: min, weight: 0.1 }
+results:
+  count: 3
+  diversity: 0.3
