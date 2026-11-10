@@ -95,6 +95,13 @@ export function generateCatalogSchema(pack: Pack): CatalogSchemaArtifact {
   for (const { name, entity } of entityEntries) {
     const rawAttributes = Object.keys(entity.attributes).map((rawName) => ({ rawName, name: normalizedIdentifier(rawName, `attribute of ${name}`) })).sort((left, right) => left.name.localeCompare(right.name));
     assertUnique(rawAttributes.map(({ name: attributeName }) => attributeName), `attribute of ${name}`);
+    const generatedColumnNames = new Set(['id', 'dataset_version']);
+    if (relationships.has(name)) generatedColumnNames.add('parent_id');
+    for (const { rawName, name: attributeName } of rawAttributes) {
+      if (generatedColumnNames.has(attributeName)) {
+        throw new CatalogSchemaError(`attribute collision for ${name}.${rawName}: generated column ${attributeName}`);
+      }
+    }
     const columns: CatalogColumn[] = [
       { name: 'id', type: 'TEXT', nullable: false, primaryKey: true },
       { name: 'dataset_version', type: 'INTEGER', nullable: false, primaryKey: false },
@@ -114,7 +121,26 @@ export function generateCatalogSchema(pack: Pack): CatalogSchemaArtifact {
 
   tables.sort((left, right) => left.name.localeCompare(right.name));
   const upStatements = tables.flatMap((table) => [sqlForTable(table), ...table.indexes.map((index) => `CREATE INDEX IF NOT EXISTS ${quote(index.name)} ON ${quote(table.name)} (${index.columns.map(quote).join(', ')});`)]);
-  const downStatements = [...tables].reverse().map((table) => `DROP TABLE IF EXISTS ${quote(table.name)};`);
+  const dependents = new Map<string, string[]>();
+  for (const table of tables) {
+    for (const foreignKey of table.foreignKeys) {
+      const children = dependents.get(foreignKey.referencedTable) ?? [];
+      children.push(table.name);
+      dependents.set(foreignKey.referencedTable, children);
+    }
+  }
+  for (const children of dependents.values()) children.sort((left, right) => left.localeCompare(right));
+  const dropped = new Set<string>();
+  const dropOrder: string[] = [];
+  const visitDependents = (name: string): void => {
+    for (const child of dependents.get(name) ?? []) visitDependents(child);
+    if (!dropped.has(name)) {
+      dropped.add(name);
+      dropOrder.push(name);
+    }
+  };
+  for (const table of tables) visitDependents(table.name);
+  const downStatements = dropOrder.map((name) => `DROP TABLE IF EXISTS ${quote(name)};`);
   return {
     pack: pack.pack,
     packVersion: pack.version,

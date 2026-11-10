@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { compilePack, type Pack } from '@pilgrim/engine';
@@ -99,5 +100,43 @@ describe('generateCatalogSchema', () => {
   beta: { attributes: { value: text }, children: alpha }
 `);
     expect(() => generateCatalogSchema(pack)).toThrow(/cycle/i);
+  });
+
+  it.each([
+    ['id', `  item: { attributes: { ID: text } }`, /item.*ID/i],
+    ['dataset_version', `  item: { attributes: { DATASET_VERSION: int } }`, /item.*DATASET_VERSION/i],
+    ['parent_id', `  parent: { attributes: { value: text }, children: child }
+  child: { attributes: { PARENT_ID: text } }`, /child.*PARENT_ID/i],
+  ])('rejects generator-owned attribute collision with %s', (_name, catalog, message) => {
+    expect(() => generateCatalogSchema(toyPack(catalog))).toThrow(CatalogSchemaError);
+    expect(() => generateCatalogSchema(toyPack(catalog))).toThrow(message);
+  });
+
+  it('drops populated foreign-key tables in dependency order independent of names', () => {
+    const artifact = generateCatalogSchema(toyPack(`  zparent: { attributes: { value: text }, children: achild }
+  achild: { attributes: { value: text }, children: bgrand }
+  bgrand: { attributes: { value: text } }
+  yparent: { attributes: { value: text }, children: cchild }
+  cchild: { attributes: { value: text } }
+`));
+    const python = `
+import sqlite3
+connection = sqlite3.connect(':memory:')
+connection.execute('PRAGMA foreign_keys = ON')
+connection.executescript(${JSON.stringify(artifact.upSql)})
+connection.executescript("""
+INSERT INTO "catalog_versions" VALUES (1, 'toy', 2);
+INSERT INTO "zparent" VALUES ('z1', 1, 'z');
+INSERT INTO "achild" VALUES ('a1', 1, 'z1', 'a');
+INSERT INTO "bgrand" VALUES ('b1', 1, 'a1', 'b');
+INSERT INTO "yparent" VALUES ('y1', 1, 'y');
+INSERT INTO "cchild" VALUES ('c1', 1, 'y1', 'c');
+""")
+connection.executescript(${JSON.stringify(artifact.downSql)})
+assert connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall() == []
+`;
+    expect(() => execFileSync('python3', ['-c', python], { encoding: 'utf8' })).not.toThrow();
+    expect(artifact.downSql.indexOf('DROP TABLE IF EXISTS "bgrand"')).toBeLessThan(artifact.downSql.indexOf('DROP TABLE IF EXISTS "achild"'));
+    expect(artifact.downSql.indexOf('DROP TABLE IF EXISTS "achild"')).toBeLessThan(artifact.downSql.indexOf('DROP TABLE IF EXISTS "zparent"'));
   });
 });
