@@ -6,6 +6,7 @@ import {
   mapActualUmrahRatesToCanonical,
   parseActualUmrahRates,
   serializeStagingDiff,
+  StagingDiffError,
 } from '../src/index.js';
 
 const bytes = readFileSync(new URL('./fixtures/actual-umrah-hotel-rates.csv', import.meta.url));
@@ -65,5 +66,48 @@ describe('pure versioned staging diff contract', () => {
     expect(() => diffStagingSnapshots({ ...versions, parent: { ...snapshot, recommenderReady: true } as never, candidate: snapshot })).toThrow(/RECOMMENDER_READY/);
     expect(() => diffStagingSnapshots({ ...versions, parent: { ...snapshot, rates: [...snapshot.rates, snapshot.rates[0]] }, candidate: snapshot })).toThrow(/DUPLICATE_KEY/);
     expect(() => diffStagingSnapshots({ ...versions, parent: snapshot, candidate: { ...snapshot, semantics: { ...snapshot.semantics, currency: 'USD' } } as never })).toThrow(/SEMANTICS_MISMATCH/);
+  });
+
+  it('treats an omitted parent as an initial import with every candidate record added', () => {
+    const result = diffStagingSnapshots({ ...versions, candidate: snapshot });
+
+    for (const name of ['hotels', 'rooms', 'rates', 'periods', 'blankCells'] as const) {
+      expect(result.diff[name].added).toHaveLength(snapshot[name].length);
+      expect(result.diff[name].added.every(({ reasons }) => reasons.includes('entity lifecycle'))).toBe(true);
+    }
+  });
+
+  it('throws StagingDiffError for malformed parent, candidate, and nested collections', () => {
+    const malformed = [
+      { ...versions, candidate: undefined },
+      { ...versions, parent: null, candidate: snapshot },
+      { ...versions, candidate: { ...snapshot, rates: undefined } },
+    ];
+
+    for (const request of malformed) {
+      try {
+        diffStagingSnapshots(request as never);
+        throw new Error('expected malformed staging request to be rejected');
+      } catch (error) {
+        expect(error).toBeInstanceOf(StagingDiffError);
+        expect((error as StagingDiffError).code).toBe('INVALID_SNAPSHOT');
+      }
+    }
+  });
+
+  it('serializes reversed nested room and rate arrays deterministically without mutation', () => {
+    const candidate = structuredClone(snapshot);
+    const before = structuredClone(candidate);
+    for (const hotel of candidate.hotels) {
+      hotel.rooms.reverse();
+      for (const room of hotel.rooms) room.rates.reverse();
+    }
+    const reversed = structuredClone(candidate);
+    const serialized = serializeStagingDiff(diffStagingSnapshots({ ...versions, parent: undefined, candidate }));
+    const canonical = serializeStagingDiff(diffStagingSnapshots({ ...versions, parent: undefined, candidate: structuredClone(snapshot) }));
+
+    expect(serialized).toBe(canonical);
+    expect(candidate).toEqual(reversed);
+    expect(before).not.toEqual(candidate);
   });
 });
