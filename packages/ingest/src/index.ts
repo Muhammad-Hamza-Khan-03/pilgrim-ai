@@ -17,6 +17,19 @@ export type {
   CanonicalRoom,
   CanonicalSourceRef,
 } from './actual-umrah-canonical.js';
+export {
+  createStagingDiff,
+  diffStagingSnapshots,
+  serializeStagingDiff,
+  StagingDiffError,
+} from './staging-diff.js';
+export type {
+  ChangedRecord,
+  StagingDiffReason,
+  StagingDiffRequest,
+  StagingDiffResult,
+  StagingEntityDiff,
+} from './staging-diff.js';
 
 export interface SourceArtifact {
   sourceId: string;
