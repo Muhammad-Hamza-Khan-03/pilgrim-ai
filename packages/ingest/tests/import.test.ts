@@ -60,6 +60,22 @@ describe('parseCsv', () => {
   it('rejects malformed quoted fields', () => {
     expect(() => parseCsv('id,name\n1,"unterminated\n')).toThrow(CatalogCsvImportError);
   });
+
+  it('rejects trailing characters after a closed quoted field', () => {
+    expect(() => parseCsv('id,name\n1,"valid"oops\n')).toThrowError(
+      expect.objectContaining({ code: 'MALFORMED_CSV' }),
+    );
+  });
+
+  it('preserves CRLF row parsing and rejects post-quote delimiters', () => {
+    expect(parseCsv('id,name\r\n1,"A, B"\r\n')).toEqual({
+      headers: ['id', 'name'],
+      rows: [{ rowNumber: 2, values: ['1', 'A, B'], raw: '1,"A, B"' }],
+    });
+    expect(() => parseCsv('id,name\r\n1,"A"x\r\n')).toThrowError(
+      expect.objectContaining({ code: 'MALFORMED_CSV' }),
+    );
+  });
 });
 
 describe('importCatalogCsv', () => {
@@ -118,5 +134,83 @@ describe('importCatalogCsv', () => {
       sources: { car: source('name,seats,dataset_version\nA,4,99\n') },
     });
     expect(result.rejected.map((row) => row.error.code)).toEqual(['RESERVED_HEADER', 'MISSING_HEADER', 'MISSING_HEADER', 'PARENT_NOT_ALLOWED']);
+  });
+
+  it.each([
+    ['too few', 'id,name,seats,daily_rate\na,A,4\n'],
+    ['too many', 'id,name,seats,daily_rate\na,A,4,1,unexpected\n'],
+  ])('rejects %s row fields with ROW_WIDTH_MISMATCH and preserves raw provenance', (_label, csv) => {
+    const result = importCatalogCsv({ pack: carPack, schema: carSchema, datasetVersion: 1, sources: { car: source(csv) } });
+    expect(result.accepted).toEqual([]);
+    expect(result.rejected[0]).toMatchObject({
+      error: { code: 'ROW_WIDTH_MISMATCH' },
+      provenance: { rowNumber: 2, rawValues: expect.any(Array) },
+    });
+    expect(result.rejected[0].provenance.rawValues).toEqual(csv.trimEnd().split('\n')[1].split(','));
+  });
+
+  it('rejects a tampered supplied source artifact before parsing', () => {
+    const artifact = source('id,name,seats,daily_rate\ncar-1,A,4,10\n');
+    artifact.bytes[0] = 0x58;
+    const result = importCatalogCsv({ pack: carPack, schema: carSchema, datasetVersion: 1, sources: { car: artifact } });
+    expect(result.accepted).toEqual([]);
+    expect(result.rejected[0].error.code).toBe('SOURCE_PROVENANCE_MISMATCH');
+  });
+
+  it('resolves normalized entity and header identifiers and emits canonical keys', () => {
+    const result = importCatalogCsv({
+      pack: carPack,
+      schema: carSchema,
+      datasetVersion: 1,
+      sources: { CAR: source('ID,Name,SEATS,DAILY_RATE\ncar-1,A,4,10\n') },
+    });
+    expect(result.rejected).toEqual([]);
+    expect(result.accepted[0]).toMatchObject({
+      entity: 'car',
+      values: { id: 'car-1', name: 'A', seats: 4, daily_rate: 10 },
+    });
+  });
+
+  it('rejects normalized collisions in source keys and headers', () => {
+    const sourceA = source('id,name,seats,daily_rate\ncar-1,A,4,10\n');
+    const sourceB = source('id,name,seats,daily_rate\ncar-2,B,4,11\n');
+    const sourceCollision = importCatalogCsv({
+      pack: carPack, schema: carSchema, datasetVersion: 1,
+      sources: { car: sourceA, CAR: sourceB },
+    });
+    expect(sourceCollision.accepted).toEqual([]);
+    expect(sourceCollision.rejected.filter((row) => row.error.code === 'NORMALIZED_COLLISION')).toHaveLength(2);
+
+    const headerCollision = importCatalogCsv({
+      pack: carPack, schema: carSchema, datasetVersion: 1,
+      sources: { car: source('id,ID,name,seats,daily_rate\ncar-1,car-1,A,4,10\n') },
+    });
+    expect(headerCollision.rejected[0].error.code).toBe('NORMALIZED_COLLISION');
+  });
+
+  it('rejects ambiguous normalized pack entities and attributes', () => {
+    const ambiguousEntityPack = {
+      ...carPack,
+      catalog: { ...carPack.catalog, CAR: carPack.catalog.car },
+    };
+    const entityResult = importCatalogCsv({
+      pack: ambiguousEntityPack,
+      schema: carSchema,
+      datasetVersion: 1,
+      sources: { car: source('id,name,seats,daily_rate\ncar-1,A,4,10\n') },
+    });
+    expect(entityResult.rejected[0].error.code).toBe('NORMALIZED_COLLISION');
+
+    const ambiguousAttributePack = {
+      ...carPack,
+      catalog: { ...carPack.catalog, car: { ...carPack.catalog.car, attributes: { ...carPack.catalog.car.attributes, Name: 'text' } } },
+    };
+    const attributeResult = importCatalogCsv({
+      pack: ambiguousAttributePack,
+      schema: carSchema,
+      datasetVersion: 1,
+      sources: { car: source('id,name,seats,daily_rate\ncar-1,A,4,10\n') },
+    });
+    expect(attributeResult.rejected[0].error.code).toBe('NORMALIZED_COLLISION');
   });
 });
