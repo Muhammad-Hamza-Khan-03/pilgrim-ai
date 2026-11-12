@@ -34,6 +34,18 @@ export { chunkMarkdownDocument, MarkdownChunkingError } from './markdown-chunkin
 export type { MarkdownChunk, MarkdownChunkOptions } from './markdown-chunking.js';
 export { extractMarkdownTables } from './markdown-table-extraction.js';
 export type { MarkdownTable, MarkdownTableAlignment, MarkdownTableRow } from './markdown-table-extraction.js';
+export { classifyMarkdownTable, normalizeMarkdownTableHeader } from './markdown-table-mapping.js';
+export type {
+  MappedMarkdownTable,
+  MarkdownTableAliasMap,
+  MarkdownTableClassification,
+  MarkdownTableMapping,
+  MarkdownTableMappingRequest,
+  MarkdownTableNeedsReview,
+  MarkdownTableProvenance,
+  MarkdownTableReviewCode,
+  MarkdownTableReviewReason,
+} from './markdown-table-mapping.js';
 export { parseActualUmrahRates, ACTUAL_UMRAH_HEADERS } from './actual-umrah.js';
 export type { ActualUmrahRateRow, ActualUmrahRates, ShadowDate } from './actual-umrah.js';
 export {
