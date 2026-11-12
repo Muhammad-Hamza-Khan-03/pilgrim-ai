@@ -30,6 +30,8 @@ export type {
   MarkdownDocument,
   MarkdownSourceManifest,
 } from './markdown-connector.js';
+export { chunkMarkdownDocument, MarkdownChunkingError } from './markdown-chunking.js';
+export type { MarkdownChunk, MarkdownChunkOptions } from './markdown-chunking.js';
 export { parseActualUmrahRates, ACTUAL_UMRAH_HEADERS } from './actual-umrah.js';
 export type { ActualUmrahRateRow, ActualUmrahRates, ShadowDate } from './actual-umrah.js';
 export {
