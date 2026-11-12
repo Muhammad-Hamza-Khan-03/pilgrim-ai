@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 export const MAX_SOURCE_ARTIFACT_BYTES = 10 * 1024 * 1024;
 export const SOURCE_ARTIFACT_PREFIX = 'sources/sha256/';
-export type SourceArtifactKind = 'csv' | 'text';
+export type SourceArtifactKind = 'csv' | 'markdown' | 'text';
 
 export class SourceArtifactError extends Error {
   readonly code: string;

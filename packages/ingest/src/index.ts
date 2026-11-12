@@ -22,6 +22,14 @@ export type {
 } from './source-artifact.js';
 export { ingestCsvSource } from './csv-connector.js';
 export type { CsvConnectorRequest, CsvConnectorResult, CsvSourceManifest } from './csv-connector.js';
+export { ingestMarkdownSource } from './markdown-connector.js';
+export type {
+  MarkdownBlock,
+  MarkdownConnectorRequest,
+  MarkdownConnectorResult,
+  MarkdownDocument,
+  MarkdownSourceManifest,
+} from './markdown-connector.js';
 export { parseActualUmrahRates, ACTUAL_UMRAH_HEADERS } from './actual-umrah.js';
 export type { ActualUmrahRateRow, ActualUmrahRates, ShadowDate } from './actual-umrah.js';
 export {
