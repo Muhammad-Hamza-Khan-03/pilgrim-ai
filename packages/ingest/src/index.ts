@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { createSourceArtifact } from './source-artifact.js';
+import { createSourceArtifact, SourceArtifactError, verifySourceArtifact } from './source-artifact.js';
 import type { SourceArtifact } from './source-artifact.js';
 import type { CatalogSchemaArtifact } from '../../catalog-schema/src/types.js';
 import type { Pack } from '../../engine/src/index.js';
@@ -234,9 +233,11 @@ function artifactFor(source: SourceArtifact | Uint8Array | string): SourceArtifa
   return typeof source === 'string' ? createSourceArtifact(new TextEncoder().encode(source)) : source instanceof Uint8Array ? createSourceArtifact(source) : source;
 }
 function verifyArtifact(artifact: SourceArtifact): void {
-  const hash = createHash('sha256').update(artifact.bytes).digest('hex');
-  if (artifact.sourceId !== hash || artifact.sha256 !== hash || artifact.byteLength !== artifact.bytes.byteLength) {
-    throw new CatalogCsvImportError('SOURCE_PROVENANCE_MISMATCH', 'source artifact metadata does not match its exact bytes');
+  try {
+    verifySourceArtifact(artifact);
+  } catch (error) {
+    if (error instanceof SourceArtifactError) throw new CatalogCsvImportError(error.code, error.message);
+    throw error;
   }
 }
 

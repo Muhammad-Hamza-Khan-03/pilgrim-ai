@@ -157,6 +157,15 @@ describe('importCatalogCsv', () => {
     expect(result.rejected[0].error.code).toBe('SOURCE_PROVENANCE_MISMATCH');
   });
 
+  it.each(['sources/sha256/not-content-addressed', '../escape.csv'])('rejects forged source artifact keys before parsing: %s', (key) => {
+    const artifact = source('id,name,seats,daily_rate\ncar-1,A,4,10\n');
+    artifact.key = key;
+    const result = importCatalogCsv({ pack: carPack, schema: carSchema, datasetVersion: 1, sources: { car: artifact } });
+    expect(result.accepted).toEqual([]);
+    expect(result.rejected).toHaveLength(1);
+    expect(result.rejected[0].error.code).toBe('SOURCE_PROVENANCE_MISMATCH');
+  });
+
   it('resolves normalized entity and header identifiers and emits canonical keys', () => {
     const result = importCatalogCsv({
       pack: carPack,
