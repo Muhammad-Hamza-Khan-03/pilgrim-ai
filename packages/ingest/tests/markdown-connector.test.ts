@@ -56,6 +56,24 @@ describe('Markdown connector', () => {
     });
   });
 
+  it('gives equivalent line endings identical block IDs while preserving distinct source artifacts', async () => {
+    const logical = '# Guide\nIntro\n\n## Details\nBody\n';
+    const variants = [logical, logical.replaceAll('\n', '\r\n'), logical.replaceAll('\n', '\r')];
+    const results = await Promise.all(variants.map((bytes) => ingestMarkdownSource({
+      store: createInMemorySourceArtifactStore(),
+      bytes,
+      filename: 'guide.md',
+    })));
+
+    expect(results.map((result) => result.document.text)).toEqual([logical, logical, logical]);
+    expect(results[1].document.blocks).toEqual(results[0].document.blocks);
+    expect(results[2].document.blocks).toEqual(results[0].document.blocks);
+    expect(new Set(results.map((result) => result.artifact.sourceId)).size).toBe(3);
+    expect(new Set(results.map((result) => result.artifact.sha256)).size).toBe(3);
+    expect(results.map((result) => result.artifact.byteLength)).toEqual(variants.map((bytes) => encoder.encode(bytes).byteLength));
+    expect(results.map((result) => result.artifact.bytes)).toEqual(variants.map((bytes) => encoder.encode(bytes)));
+  });
+
   it('supports string input, ATX levels one through six, and omits empty blocks', async () => {
     const result = await ingestMarkdownSource({
       store: createInMemorySourceArtifactStore(),

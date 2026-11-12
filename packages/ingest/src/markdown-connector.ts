@@ -68,8 +68,8 @@ function isFenceClose(line: string): { char: string; length: number } | undefine
   return match ? { char: match[1][0], length: match[1].length } : undefined;
 }
 
-function blockId(source: string, startLine: number, endLine: number, headingPath: string[], text: string): string {
-  return `markdown-${createHash('sha256').update(source).update('\0').update(String(startLine)).update('\0').update(String(endLine)).update('\0').update(headingPath.join('\0')).update('\0').update(text).digest('hex')}`;
+function blockId(normalizedText: string, startLine: number, endLine: number, headingPath: string[], text: string): string {
+  return `markdown-${createHash('sha256').update(normalizedText).update('\0').update(String(startLine)).update('\0').update(String(endLine)).update('\0').update(headingPath.join('\0')).update('\0').update(text).digest('hex')}`;
 }
 
 function convertMarkdown(sourceId: string, text: string): MarkdownDocument {
@@ -90,7 +90,7 @@ function convertMarkdown(sourceId: string, text: string): MarkdownDocument {
     const startLine = pendingStart + 1;
     const endLine = endLineIndex;
     blocks.push({
-      blockId: blockId(sourceId, startLine, endLine, path, segment),
+      blockId: blockId(text, startLine, endLine, path, segment),
       headingPath: [...path],
       text: segment,
       startLine,
