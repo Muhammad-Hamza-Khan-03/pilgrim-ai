@@ -61,7 +61,7 @@ type EntityCandidate = {
 
 type AttributeMatch = { attribute: string; semantic: boolean };
 
-const normalizeHeader = (value: string): string => value.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[ -]+/g, '_');
+const normalizeHeader = (value: string): string => value.trim().toLowerCase().replace(/[\s_-]+/g, '_');
 const provenanceOf = (table: MarkdownTable): MarkdownTableProvenance => ({
   tableId: table.tableId,
   sourceId: table.sourceId,
@@ -141,6 +141,18 @@ export function classifyMarkdownTable(request: MarkdownTableMappingRequest): Mar
   }
 
   const [{ candidate, headers }] = viable;
+  const mappedAttributes = headers.map((match) => match!.attribute);
+  const canonicalCollisionNames = [...new Set(mappedAttributes.filter((attribute, index) => mappedAttributes.indexOf(attribute) !== index))].sort();
+  if (canonicalCollisionNames.length > 0) {
+    return {
+      status: 'needs_review',
+      reasons: [reason('NORMALIZED_HEADER_COLLISION', {
+        unknown: canonicalCollisionNames,
+        message: `headers map ambiguously to the same canonical attribute: ${canonicalCollisionNames.join(', ')}`,
+      })],
+      provenance,
+    };
+  }
   const headerMappings = headers.map((match, index) => ({ source: table.headers[index], normalized: normalizedHeaders[index], attribute: match!.attribute }));
   const widthMismatch = table.rows.some((row) => row.values.length !== table.headers.length);
   if (widthMismatch) {

@@ -62,6 +62,33 @@ describe('deterministic Markdown table classification and schema mapping', () =>
     expect(collision.status === 'needs_review' && collision.reasons.map((reason) => reason.code)).toEqual(['NORMALIZED_HEADER_COLLISION']);
   });
 
+  it('rejects distinct explicit aliases that map to one canonical attribute without partial mapping', () => {
+    const collision = classifyMarkdownTable({
+      table: table(['ID', 'Vehicle Name', 'Name Alias', 'Daily Rate'], [['C-1', 'Sedan', 'Car', '12']]),
+      pack: singlePack,
+      schema: singleSchema,
+      aliases: { car: { 'Vehicle Name': 'name', 'Name Alias': 'name' } },
+    });
+
+    expect(collision).toMatchObject({ status: 'needs_review' });
+    expect(collision.status === 'needs_review' && collision.reasons).toEqual([
+      expect.objectContaining({ code: 'NORMALIZED_HEADER_COLLISION' }),
+    ]);
+  });
+
+  it('collapses mixed separators deterministically during header normalization', () => {
+    const result = classifyMarkdownTable({
+      table: table(['ID', 'Name', 'Daily _  Rate']),
+      pack: singlePack,
+      schema: singleSchema,
+    });
+
+    expect(result.status).toBe('mapped');
+    expect(result.status === 'mapped' && result.headers[2]).toEqual({
+      source: 'Daily _  Rate', normalized: 'daily_rate', attribute: 'daily_rate',
+    });
+  });
+
   it('reports no match, ambiguity, missing semantic headers, and child parent-context requirements', () => {
     const noMatch = classifyMarkdownTable({ table: table(['ID', 'Color']), pack, schema });
     expect(noMatch.status).toBe('needs_review');
