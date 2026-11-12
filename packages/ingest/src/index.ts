@@ -49,6 +49,20 @@ export type {
   VersionReview,
   VersionedEntity,
 } from './version-lifecycle.js';
+export {
+  createInMemoryPublicationAdapter,
+  executePublication,
+  materializeVersion,
+  PublicationError,
+} from './publication.js';
+export type {
+  ExecutePublicationOptions,
+  InMemoryPublicationAdapterOptions,
+  MaterializedVersion,
+  PublicationAdapter,
+  PublicationRecord,
+  PublicationState,
+} from './publication.js';
 
 export interface SourceArtifact {
   sourceId: string;
