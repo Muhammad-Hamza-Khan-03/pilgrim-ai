@@ -1,6 +1,28 @@
 import { createHash } from 'node:crypto';
+import { createSourceArtifact } from './source-artifact.js';
+import type { SourceArtifact } from './source-artifact.js';
 import type { CatalogSchemaArtifact } from '../../catalog-schema/src/types.js';
 import type { Pack } from '../../engine/src/index.js';
+export {
+  MAX_SOURCE_ARTIFACT_BYTES,
+  SOURCE_ARTIFACT_PREFIX,
+  SourceArtifactError,
+  createInMemorySourceArtifactStore,
+  createSourceArtifact,
+  sourceArtifactKey,
+  verifySourceArtifact,
+} from './source-artifact.js';
+export type {
+  InMemorySourceArtifactStoreOptions,
+  PutIfAbsentResult,
+  SourceArtifact,
+  SourceArtifactHead,
+  SourceArtifactKind,
+  SourceArtifactOptions,
+  SourceArtifactStore,
+} from './source-artifact.js';
+export { ingestCsvSource } from './csv-connector.js';
+export type { CsvConnectorRequest, CsvConnectorResult, CsvSourceManifest } from './csv-connector.js';
 export { parseActualUmrahRates, ACTUAL_UMRAH_HEADERS } from './actual-umrah.js';
 export type { ActualUmrahRateRow, ActualUmrahRates, ShadowDate } from './actual-umrah.js';
 export {
@@ -79,19 +101,6 @@ export type {
   PublicationTransaction,
   PublishToStoreOptions,
 } from './publication-store.js';
-
-export interface SourceArtifact {
-  sourceId: string;
-  sha256: string;
-  byteLength: number;
-  bytes: Uint8Array;
-}
-
-export function createSourceArtifact(bytes: Uint8Array): SourceArtifact {
-  const copy = new Uint8Array(bytes);
-  const sha256 = createHash('sha256').update(copy).digest('hex');
-  return { sourceId: sha256, sha256, byteLength: copy.byteLength, bytes: copy };
-}
 
 export class CatalogCsvImportError extends Error {
   readonly code: string;
