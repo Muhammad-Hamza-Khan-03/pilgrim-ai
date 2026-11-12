@@ -63,6 +63,22 @@ export type {
   PublicationRecord,
   PublicationState,
 } from './publication.js';
+export {
+  createInMemoryPublicationStore,
+  publishToStore,
+  publicationRecordDigest,
+  publicationRecordKey,
+  serializePublicationStoreState,
+  PublicationStoreError,
+} from './publication-store.js';
+export type {
+  InMemoryPublicationStoreOptions,
+  PublicationCacheMetadata,
+  PublicationStore,
+  PublicationStoreState,
+  PublicationTransaction,
+  PublishToStoreOptions,
+} from './publication-store.js';
 
 export interface SourceArtifact {
   sourceId: string;
