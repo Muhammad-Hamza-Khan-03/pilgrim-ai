@@ -16,6 +16,7 @@ export interface VersionReview {
   reviewer?: string;
   reviewedAt?: string;
   reason?: string;
+  snapshotDigest?: string;
 }
 export interface VersionLifecycle {
   manifest: VersionManifest;
@@ -27,6 +28,8 @@ export interface ReviewRequest {
   reviewer: string;
   reviewedAt: string;
   reason?: string;
+  snapshotDigest?: string;
+  expectedSnapshotDigest?: string;
 }
 export interface PublishPlan {
   version: string;
@@ -66,6 +69,9 @@ function canonical(value: unknown): unknown {
 }
 function serialize(value: unknown): string { return JSON.stringify(canonical(value)); }
 function digest(value: unknown): string { return createHash('sha256').update(serialize(value)).digest('hex'); }
+function lifecycleContentDigest(lifecycle: Pick<VersionLifecycle, 'manifest' | 'diff'>): string {
+  return digest({ source: lifecycle.manifest.source, diff: lifecycle.diff });
+}
 function copy<T>(value: T): T { return structuredClone(value); }
 function requireVersion(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim() === '') throw new VersionLifecycleError('INVALID_VERSION', `${label} must be a non-empty opaque version`);
@@ -79,18 +85,18 @@ function requireLifecycle(value: unknown): asserts value is VersionLifecycle {
 }
 
 export function createVersionLifecycle(result: StagingDiffResult): VersionLifecycle {
-  if (!isRecord(result) || !isRecord(result.version) || !isRecord(result.sources) || !isRecord(result.diff)) throw new VersionLifecycleError('INVALID_DIFF', 'a staging diff result is required');
+  if (!isRecord(result) || !isRecord(result.version) || !isRecord(result.sources) || !isRecord(result.review) || !isRecord(result.diff)) throw new VersionLifecycleError('INVALID_DIFF', 'a staging diff result is required');
   const version = requireVersion(result.version.candidateVersion, 'candidateVersion');
   const parentVersion = result.version.parentVersion === undefined ? undefined : requireVersion(result.version.parentVersion, 'parentVersion');
   if (!isRecord(result.sources.candidate)) throw new VersionLifecycleError('INVALID_SOURCE', 'candidate source is required');
   if (result.review.status !== 'pending' || result.review.approved !== false) throw new VersionLifecycleError('INVALID_DIFF', 'only a pending, unapproved staging diff may enter the lifecycle');
-  const snapshot = { sources: result.sources, diff: result.diff };
+  const snapshotDigest = digest({ source: result.sources.candidate, diff: result.diff });
   return {
     manifest: {
       version,
       ...(parentVersion === undefined ? {} : { parentVersion }),
       source: copy(result.sources.candidate),
-      snapshotDigest: digest(snapshot),
+      snapshotDigest,
       status: 'staging',
       recommenderReady: false,
     },
@@ -106,12 +112,16 @@ export function createReview(lifecycle: VersionLifecycle, request: ReviewRequest
     throw new VersionLifecycleError('INVALID_REVIEW', 'review status, non-empty reviewer, and exact ISO timestamp are required');
   }
   if (request.status === 'rejected' && request.reason !== undefined && (typeof request.reason !== 'string' || request.reason.trim() === '')) throw new VersionLifecycleError('INVALID_REVIEW', 'rejection reason must be non-empty when supplied');
-  return { manifest: copy(lifecycle.manifest), diff: copy(lifecycle.diff), review: { status: request.status, approved: request.status === 'approved', reviewer: request.reviewer.trim(), reviewedAt: request.reviewedAt, ...(request.reason === undefined ? {} : { reason: request.reason.trim() }) } };
+  const currentDigest = lifecycleContentDigest(lifecycle);
+  const expectedDigest = request.snapshotDigest ?? request.expectedSnapshotDigest;
+  if (expectedDigest !== undefined && expectedDigest !== currentDigest) throw new VersionLifecycleError('SNAPSHOT_DIGEST_MISMATCH', 'review digest does not match the lifecycle snapshot');
+  return { manifest: copy(lifecycle.manifest), diff: copy(lifecycle.diff), review: { status: request.status, approved: request.status === 'approved', reviewer: request.reviewer.trim(), reviewedAt: request.reviewedAt, ...(request.reason === undefined ? {} : { reason: request.reason.trim() }), snapshotDigest: currentDigest } };
 }
 
 export function createPublishPlan(lifecycle: VersionLifecycle, request: { activeVersion?: string } = {}): PublishPlan {
   requireLifecycle(lifecycle);
   if (lifecycle.review.status !== 'approved' || lifecycle.review.approved !== true) throw new VersionLifecycleError('REVIEW_NOT_APPROVED', 'only an approved review may publish');
+  if (lifecycle.review.snapshotDigest !== lifecycle.manifest.snapshotDigest || lifecycleContentDigest(lifecycle) !== lifecycle.manifest.snapshotDigest) throw new VersionLifecycleError('SNAPSHOT_DIGEST_MISMATCH', 'approved lifecycle content no longer matches its snapshot digest');
   if (lifecycle.manifest.parentVersion !== undefined && lifecycle.manifest.parentVersion !== request.activeVersion) throw new VersionLifecycleError('ACTIVE_PARENT_MISMATCH', 'active version does not match the manifest parent');
   if (lifecycle.manifest.parentVersion === undefined && request.activeVersion !== undefined) throw new VersionLifecycleError('ACTIVE_PARENT_MISMATCH', 'an initial version cannot replace an active parent');
   const entities: VersionedEntity[] = ['hotels', 'rooms', 'rates', 'periods', 'blankCells'];
@@ -124,9 +134,13 @@ export function createPublishPlan(lifecycle: VersionLifecycle, request: { active
 
 export function createRollbackPlan(lifecycle: VersionLifecycle, request: RollbackRequest): RollbackPlan {
   requireLifecycle(lifecycle);
-  if (!isRecord(request) || typeof request.activeVersion !== 'string' || typeof request.targetVersion !== 'string' || request.activeVersion === request.targetVersion || !Array.isArray(request.previouslyPublished) || !request.previouslyPublished.every((version) => typeof version === 'string')) throw new VersionLifecycleError('INVALID_ROLLBACK', 'rollback requires distinct active and target versions plus publication history');
-  if (!request.previouslyPublished.includes(request.targetVersion)) throw new VersionLifecycleError('NOT_PUBLISHED', 'rollback target was not previously published');
-  return { targetVersion: request.targetVersion, expectedActiveVersion: request.activeVersion, cache: { bump: true }, historyMutation: false };
+  if (!isRecord(request) || !Array.isArray(request.previouslyPublished)) throw new VersionLifecycleError('INVALID_ROLLBACK', 'rollback requires distinct active and target versions plus publication history');
+  const activeVersion = requireVersion(request.activeVersion, 'activeVersion');
+  const targetVersion = requireVersion(request.targetVersion, 'targetVersion');
+  const previouslyPublished = request.previouslyPublished.map((version) => requireVersion(version, 'previouslyPublished version'));
+  if (activeVersion === targetVersion) throw new VersionLifecycleError('INVALID_ROLLBACK', 'rollback active and target versions must differ');
+  if (!previouslyPublished.includes(targetVersion)) throw new VersionLifecycleError('NOT_PUBLISHED', 'rollback target was not previously published');
+  return { targetVersion, expectedActiveVersion: activeVersion, cache: { bump: true }, historyMutation: false };
 }
 
 export function serializeVersionLifecycle(value: VersionLifecycle): string { requireLifecycle(value); return serialize(value); }

@@ -51,7 +51,7 @@ describe('pure versioned review/publish/rollback lifecycle', () => {
     const lifecycle = createVersionLifecycle(toyDiff());
     const result = createReview(lifecycle, { status: 'approved', reviewer: ' reviewer-1 ', reviewedAt: '2026-11-10T12:00:00.000Z' });
     expect(lifecycle.review).toEqual({ status: 'pending', approved: false });
-    expect(result.review).toEqual({ status: 'approved', approved: true, reviewer: 'reviewer-1', reviewedAt: '2026-11-10T12:00:00.000Z' });
+    expect(result.review).toEqual({ status: 'approved', approved: true, reviewer: 'reviewer-1', reviewedAt: '2026-11-10T12:00:00.000Z', snapshotDigest: lifecycle.manifest.snapshotDigest });
     expect(() => createReview(lifecycle, { status: 'approved', reviewer: '', reviewedAt: '2026-11-10T12:00:00.000Z' })).toThrow(/INVALID_REVIEW/);
     expect(() => createReview(lifecycle, { status: 'approved', reviewer: 'r', reviewedAt: 'not-a-date' })).toThrow(/INVALID_REVIEW/);
     expect(() => createReview(result, { status: 'rejected', reviewer: 'r', reviewedAt: '2026-11-10T12:01:00.000Z' })).toThrow(/REVIEW_TERMINAL/);
@@ -70,6 +70,12 @@ describe('pure versioned review/publish/rollback lifecycle', () => {
     expect(() => createPublishPlan(lifecycle, { activeVersion: 'other' })).toThrow(/ACTIVE_PARENT_MISMATCH/);
   });
 
+  it('rejects approved content when the lifecycle diff changes after review', () => {
+    const lifecycle = approved();
+    lifecycle.diff.rates.added[0].record = { id: 'rate-2', price: 999 } as never;
+    expect(() => createPublishPlan(lifecycle, { activeVersion: 'v1' })).toThrow(/SNAPSHOT_DIGEST_MISMATCH/);
+  });
+
   it('rejects rejected reviews and only plans rollback to a previously published version', () => {
     const rejected = createReview(createVersionLifecycle(toyDiff()), { status: 'rejected', reviewer: 'r', reviewedAt: '2026-11-10T12:00:00.000Z', reason: 'bad data' });
     expect(() => createPublishPlan(rejected, { activeVersion: 'v1' })).toThrow(/REVIEW_NOT_APPROVED/);
@@ -77,11 +83,14 @@ describe('pure versioned review/publish/rollback lifecycle', () => {
     const plan = createRollbackPlan(lifecycle, { activeVersion: 'v2', targetVersion: 'v1', previouslyPublished: ['v1', 'v2'] });
     expect(plan).toEqual({ targetVersion: 'v1', expectedActiveVersion: 'v2', cache: { bump: true }, historyMutation: false });
     expect(() => createRollbackPlan(lifecycle, { activeVersion: 'v2', targetVersion: 'v0', previouslyPublished: ['v1', 'v2'] })).toThrow(/NOT_PUBLISHED/);
+    expect(() => createRollbackPlan(lifecycle, { activeVersion: '', targetVersion: 'v1', previouslyPublished: ['v1'] })).toThrow(/INVALID_VERSION/);
+    expect(() => createRollbackPlan(lifecycle, { activeVersion: 'v2', targetVersion: 'v1', previouslyPublished: [''] })).toThrow(/INVALID_VERSION/);
   });
 
   it('serializes the full lifecycle deterministically', () => {
     const lifecycle = approved();
     expect(serializeVersionLifecycle(lifecycle)).toBe(serializeVersionLifecycle(structuredClone(lifecycle)));
     expect(() => createVersionLifecycle({ ...toyDiff(), version: { parentVersion: '', candidateVersion: 'v2' } })).toThrow(VersionLifecycleError);
+    expect(() => createVersionLifecycle({ ...toyDiff(), review: undefined as never })).toThrow(/INVALID_DIFF/);
   });
 });
