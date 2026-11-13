@@ -155,6 +155,19 @@ export type {
   PublicationTransaction,
   PublishToStoreOptions,
 } from './publication-store.js';
+export type {
+  KnowledgeEmbeddingInput,
+  KnowledgeEmbeddingProvider,
+  KnowledgeEmbeddingRequest,
+  KnowledgeEmbeddingResult,
+  KnowledgeFtsProjectionAdapter,
+  KnowledgeIndexProjectionBatch,
+  KnowledgeIndexProjectionRecord,
+  KnowledgeVector,
+  KnowledgeVectorBatch,
+  KnowledgeVectorMetadata,
+  KnowledgeVectorStore,
+} from './knowledge-index-adapters.js';
 
 export class CatalogCsvImportError extends Error {
   readonly code: string;
