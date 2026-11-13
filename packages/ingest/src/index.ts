@@ -40,6 +40,12 @@ export type {
   MarkdownKnowledgeStagingResult,
   StagedMarkdownChunk,
 } from './markdown-knowledge-staging.js';
+export { materializeKnowledgeIndex } from './knowledge-index-materialization.js';
+export type {
+  KnowledgeIndexMaterializationRequest,
+  KnowledgeIndexMaterializationResult,
+  KnowledgeIndexRecord,
+} from './knowledge-index-materialization.js';
 export { extractMarkdownTables } from './markdown-table-extraction.js';
 export type { MarkdownTable, MarkdownTableAlignment, MarkdownTableRow } from './markdown-table-extraction.js';
 export { classifyMarkdownTable, normalizeMarkdownTableHeader } from './markdown-table-mapping.js';
