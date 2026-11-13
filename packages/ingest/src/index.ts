@@ -193,6 +193,16 @@ export type {
   KnowledgeIndexStagingPipelineRequest,
   KnowledgeIndexStagingPipelineResult,
 } from './knowledge-index-staging-pipeline.js';
+export {
+  KNOWLEDGE_INDEX_STAGING_ORCHESTRATION_ERROR_CODES,
+  KnowledgeIndexStagingOrchestrationError,
+  orchestrateKnowledgeIndexStaging,
+} from './knowledge-index-staging-orchestrator.js';
+export type {
+  KnowledgeIndexStagingOrchestrationErrorCode,
+  KnowledgeIndexStagingOrchestratorOptions,
+  KnowledgeIndexStagingOrchestratorResult,
+} from './knowledge-index-staging-orchestrator.js';
 
 export class CatalogCsvImportError extends Error {
   readonly code: string;
