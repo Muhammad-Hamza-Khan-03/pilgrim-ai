@@ -44,6 +44,14 @@ export type {
   MaterializedMarkdownRow,
   RejectedMarkdownRow,
 } from './markdown-row-materialization.js';
+export { stageMarkdownRows } from './markdown-staging.js';
+export type {
+  MarkdownStagingBatch,
+  MarkdownStagingRejectedRow,
+  MarkdownStagingRequest,
+  MarkdownStagingSourceMetadata,
+  MarkdownStagingTableMetadata,
+} from './markdown-staging.js';
 export type {
   MappedMarkdownTable,
   MarkdownTableAliasMap,
