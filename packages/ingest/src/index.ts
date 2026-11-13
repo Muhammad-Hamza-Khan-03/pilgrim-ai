@@ -168,6 +168,26 @@ export type {
   KnowledgeVectorMetadata,
   KnowledgeVectorStore,
 } from './knowledge-index-adapters.js';
+export {
+  KNOWLEDGE_INDEX_ADAPTER_ERROR_CODES,
+  KnowledgeIndexAdapterError,
+  createDeterministicKnowledgeEmbeddingProvider,
+  validateKnowledgeEmbeddingResult,
+} from './knowledge-index-adapter-validation.js';
+export type {
+  DeterministicKnowledgeEmbeddingProviderOptions,
+  KnowledgeIndexAdapterErrorCode,
+} from './knowledge-index-adapter-validation.js';
+export {
+  createInMemoryKnowledgeFtsAdapter,
+  createInMemoryKnowledgeIndexFtsAdapter,
+  createInMemoryKnowledgeIndexVectorStore,
+  createInMemoryKnowledgeVectorStore,
+} from './in-memory-knowledge-index-adapters.js';
+export type {
+  InMemoryKnowledgeFtsAdapter,
+  InMemoryKnowledgeVectorStore,
+} from './in-memory-knowledge-index-adapters.js';
 
 export class CatalogCsvImportError extends Error {
   readonly code: string;
