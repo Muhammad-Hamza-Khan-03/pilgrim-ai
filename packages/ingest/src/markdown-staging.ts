@@ -30,6 +30,18 @@ export type MarkdownStagingBatch = {
 const clone = <T>(value: T): T => structuredClone(value);
 const compare = (left: string, right: string): number => left.localeCompare(right);
 
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).sort(([left], [right]) => compare(left, right)).map(([key, entry]) => [key, canonicalize(entry)]));
+  }
+  return value;
+}
+
+function serialized(value: unknown): string {
+  return JSON.stringify(canonicalize(value)) ?? '';
+}
+
 function provenanceKey(provenance: MarkdownRowDiagnosticProvenance): string {
   return [provenance.sourceId, provenance.tableId, provenance.blockId, provenance.rowNumber, provenance.order].map(String).join('\u0000');
 }
@@ -40,12 +52,15 @@ function rowKey(row: MaterializedMarkdownRow): string {
 }
 
 function rowCompare(left: MaterializedMarkdownRow, right: MaterializedMarkdownRow): number {
-  return compare(rowKey(left), rowKey(right)) || compare(provenanceKey(left.provenance), provenanceKey(right.provenance));
+  return compare(rowKey(left), rowKey(right))
+    || compare(provenanceKey(left.provenance), provenanceKey(right.provenance))
+    || compare(serialized(left), serialized(right));
 }
 
 function rejectedCompare(left: RejectedMarkdownRow, right: RejectedMarkdownRow): number {
   return compare(`${left.entity}\u0000${left.code}\u0000${left.message}`, `${right.entity}\u0000${right.code}\u0000${right.message}`)
-    || compare(provenanceKey(left.provenance), provenanceKey(right.provenance));
+    || compare(provenanceKey(left.provenance), provenanceKey(right.provenance))
+    || compare(serialized(left), serialized(right));
 }
 
 function tableMetadata(provenance: MarkdownRowDiagnosticProvenance): MarkdownStagingTableMetadata {

@@ -88,6 +88,22 @@ describe('Phase 2M Markdown staging batch assembly', () => {
     expect(left.tables.map((table) => table.tableId)).toEqual(['t1', 't2']);
   });
 
+  it('resolves identical-provenance duplicates by canonical row content regardless of input order', () => {
+    const lower = accepted('car', 'C-1', 's1', 't1', { name: 'Alpha' }, 0);
+    const higher = accepted('car', 'C-1', 's1', 't1', { name: 'Zulu' }, 0);
+    const make = (rows: typeof lower[]) => ({ publishable: true, accepted: rows, rejected: [] });
+
+    const forward = stageMarkdownRows({ datasetVersion: 7, results: [make([lower, higher])] });
+    const reverse = stageMarkdownRows({ datasetVersion: 7, results: [make([higher, lower])] });
+
+    expect(forward).toEqual(reverse);
+    expect(forward.accepted).toHaveLength(1);
+    expect(forward.accepted[0].values.name).toBe('Alpha');
+    expect(forward.rejected).toHaveLength(1);
+    expect(forward.rejected[0]).toMatchObject({ entity: 'car', code: 'DUPLICATE_ID' });
+    expect(forward.rejected[0].rawValues).toEqual(['C-1', 'Zulu']);
+  });
+
   it('propagates accepted and rejected provenance while deeply isolating input and output', () => {
     const row = accepted('car', 'C-1', 's1', 't1', { name: 'Sedan' }, 0);
     const bad = rejected('car', 's1', 't1', 1);
