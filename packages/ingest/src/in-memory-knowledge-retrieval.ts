@@ -85,6 +85,29 @@ function versioned(records: readonly KnowledgeRetrievalRecord[], datasetVersion:
 
 function tokenize(value: string): string[] { return value.toLowerCase().trim().split(/\s+/).filter(Boolean); }
 
+function cosineSimilarity(left: readonly number[], right: readonly number[]): number {
+  let leftScale = 0;
+  let rightScale = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    leftScale = Math.max(leftScale, Math.abs(left[index]));
+    rightScale = Math.max(rightScale, Math.abs(right[index]));
+  }
+  if (leftScale === 0 || rightScale === 0) return 0;
+
+  let dot = 0;
+  let leftNormSquared = 0;
+  let rightNormSquared = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    const leftValue = left[index] / leftScale;
+    const rightValue = right[index] / rightScale;
+    dot += leftValue * rightValue;
+    leftNormSquared += leftValue * leftValue;
+    rightNormSquared += rightValue * rightValue;
+  }
+  const denominator = Math.sqrt(leftNormSquared) * Math.sqrt(rightNormSquared);
+  return denominator === 0 ? 0 : dot / denominator;
+}
+
 class InMemoryKeywordKnowledgeRetriever implements KnowledgeKeywordRetriever {
   private readonly records: readonly KnowledgeRetrievalRecord[];
   private readonly isAvailable: boolean;
@@ -126,12 +149,9 @@ class InMemoryVectorKnowledgeRetriever implements KnowledgeVectorRetriever {
     validateVersionAndLimit(request.datasetVersion, request.limit);
     if (!Array.isArray(request.query) || request.query.some((value) => !Number.isFinite(value)) || request.query.length !== this.dimension) throw new KnowledgeRetrievalError('INVALID_REQUEST', 'query vector must be finite and match the index dimension');
     if (!this.isAvailable) return unavailable();
-    const queryNorm = Math.sqrt(request.query.reduce((sum, value) => sum + value * value, 0));
     const results = versioned(this.records, request.datasetVersion).map((record) => {
       const vector = record.vector!;
-      const recordNorm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
-      const dot = vector.reduce((sum, value, index) => sum + value * request.query[index], 0);
-      const score = queryNorm === 0 || recordNorm === 0 ? 0 : dot / (queryNorm * recordNorm);
+      const score = cosineSimilarity(vector, request.query);
       return hit(record, score);
     }).sort(order).slice(0, request.limit);
     return available(request.datasetVersion, results);

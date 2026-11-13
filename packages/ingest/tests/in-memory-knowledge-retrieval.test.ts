@@ -57,6 +57,21 @@ describe('Phase 2U deterministic in-memory knowledge retrieval', () => {
     ]);
   });
 
+  it('keeps cosine scores finite for very large finite vector components', () => {
+    const huge = Number.MAX_VALUE;
+    const retriever = createInMemoryVectorKnowledgeRetriever([
+      { ...record('aligned', 'aligned'), vector: [huge, huge] },
+      { ...record('opposite', 'opposite'), vector: [huge, -huge] },
+      { ...record('zero', 'zero'), vector: [0, 0] },
+    ]);
+
+    const results = retriever.search({ datasetVersion: 7, query: [huge, huge], limit: 5 }).results;
+    expect(results.map((hit) => hit.recordId)).toEqual(['aligned', 'opposite', 'zero']);
+    expect(results[0].score).toBeCloseTo(1, 15);
+    expect(results.slice(1).map((hit) => hit.score)).toEqual([0, 0]);
+    expect(results.every((hit) => Number.isFinite(hit.score))).toBe(true);
+  });
+
   it('rejects nonfinite and dimension-mismatched vectors and isolates inputs/outputs', () => {
     const input = record('x', 'x'); input.vector = [0, 1];
     const retriever = createInMemoryVectorKnowledgeRetriever([input]);
