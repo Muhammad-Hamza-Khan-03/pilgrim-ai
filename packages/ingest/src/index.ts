@@ -32,6 +32,14 @@ export type {
 } from './markdown-connector.js';
 export { chunkMarkdownDocument, MarkdownChunkingError } from './markdown-chunking.js';
 export type { MarkdownChunk, MarkdownChunkOptions } from './markdown-chunking.js';
+export { stageMarkdownKnowledge } from './markdown-knowledge-staging.js';
+export type {
+  MarkdownKnowledgeStagingRejection,
+  MarkdownKnowledgeStagingRejectionCode,
+  MarkdownKnowledgeStagingRequest,
+  MarkdownKnowledgeStagingResult,
+  StagedMarkdownChunk,
+} from './markdown-knowledge-staging.js';
 export { extractMarkdownTables } from './markdown-table-extraction.js';
 export type { MarkdownTable, MarkdownTableAlignment, MarkdownTableRow } from './markdown-table-extraction.js';
 export { classifyMarkdownTable, normalizeMarkdownTableHeader } from './markdown-table-mapping.js';
