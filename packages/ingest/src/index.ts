@@ -188,6 +188,11 @@ export type {
   InMemoryKnowledgeFtsAdapter,
   InMemoryKnowledgeVectorStore,
 } from './in-memory-knowledge-index-adapters.js';
+export { stageKnowledgeIndex } from './knowledge-index-staging-pipeline.js';
+export type {
+  KnowledgeIndexStagingPipelineRequest,
+  KnowledgeIndexStagingPipelineResult,
+} from './knowledge-index-staging-pipeline.js';
 
 export class CatalogCsvImportError extends Error {
   readonly code: string;
