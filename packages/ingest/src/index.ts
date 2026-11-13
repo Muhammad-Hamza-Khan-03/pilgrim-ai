@@ -204,6 +204,20 @@ export type {
   KnowledgeIndexStagingOrchestratorResult,
 } from './knowledge-index-staging-orchestrator.js';
 
+export { createInMemoryKeywordKnowledgeRetriever, createInMemoryVectorKnowledgeRetriever, KnowledgeRetrievalError, MAX_KNOWLEDGE_RETRIEVAL_LIMIT } from './in-memory-knowledge-retrieval.js';
+export type {
+  KnowledgeKeywordRetriever,
+  KnowledgeKeywordSearchRequest,
+  KnowledgeRetrievalAvailableResult,
+  KnowledgeRetrievalHit,
+  KnowledgeRetrievalProvenance,
+  KnowledgeRetrievalRecord,
+  KnowledgeRetrievalResult,
+  KnowledgeRetrievalUnavailableResult,
+  KnowledgeVectorRetriever,
+  KnowledgeVectorSearchRequest,
+} from './knowledge-retrieval.js';
+
 export class CatalogCsvImportError extends Error {
   readonly code: string;
   constructor(code: string, message: string) {
