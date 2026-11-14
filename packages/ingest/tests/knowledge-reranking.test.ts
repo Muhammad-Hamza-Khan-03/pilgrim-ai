@@ -59,4 +59,20 @@ describe('deterministic knowledge reranker', () => {
     expect(code(() => run(ok(hit('a', 1, 'x', { endLine: 0 }))))).toBe('INVALID_RECORD');
     expect(code(() => run(ok(hit('a', 1, 'x'), hit('a', 2, 'y'))))).toBe('DUPLICATE_RECORD_ID');
   });
+
+  it('validates factory options before reading properties', () => {
+    expect(() => createDeterministicKnowledgeReranker(undefined)).not.toThrow();
+    expect(() => createDeterministicKnowledgeReranker({})).not.toThrow();
+    const bad: unknown[] = [null, 'x', '', 1, 0, true, false, 1n, Symbol('s'), () => ({}), [], [{ maxQueryTerms: 2 }]];
+    for (const o of bad) {
+      let err: unknown;
+      try { createDeterministicKnowledgeReranker(o as never); } catch (e) { err = e; }
+      expect(err).toBeInstanceOf(KnowledgeRetrievalError);
+      expect((err as KnowledgeRetrievalError).code).toBe('INVALID_REQUEST');
+    }
+    for (const v of [0, -1, 1.5, NaN, Infinity, '2', null, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(code(() => createDeterministicKnowledgeReranker({ maxQueryTerms: v as never }))).toBe('INVALID_REQUEST');
+      expect(code(() => createDeterministicKnowledgeReranker({ maxTextTerms: v as never }))).toBe('INVALID_REQUEST');
+    }
+  });
 });

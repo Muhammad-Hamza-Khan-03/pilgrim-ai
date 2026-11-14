@@ -26,7 +26,7 @@ const compare = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
 const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 
 function bound(value: number | undefined, fallback: number, name: string): number {
-  const v = value ?? fallback;
+  const v = value === undefined ? fallback : value;
   if (!Number.isSafeInteger(v) || v < 1) throw invalidRequest(`${name} must be a positive safe integer`);
   return v;
 }
@@ -50,6 +50,7 @@ function validateHit(hit: KnowledgeRetrievalHit, datasetVersion: number): void {
  * Order: rerank score desc, original score desc, recordId, then provenance fields.
  */
 export function createDeterministicKnowledgeReranker(options: KnowledgeRerankerOptions = {}): KnowledgeReranker {
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) throw invalidRequest('options must be an object');
   const maxQuery = bound(options.maxQueryTerms, DEFAULT_KNOWLEDGE_RERANK_MAX_QUERY_TERMS, 'maxQueryTerms');
   const maxText = bound(options.maxTextTerms, DEFAULT_KNOWLEDGE_RERANK_MAX_TEXT_TERMS, 'maxTextTerms');
   return {
