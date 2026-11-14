@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { type LlmChain, invokeLlm, localMockLlm } from './llm.js';
 
 export * from './llm.js';
@@ -21,6 +21,8 @@ export const MAX_SESSIONS = 100;
 type Turn = { role: 'user' | 'assistant'; content: string };
 const sessions = new Map<string, Turn[]>();
 let counter = 0;
+let reserved = 0; // in-flight new-session creations
+const tails = new Map<string, Promise<unknown>>(); // per-session turn queue
 let llmChain: LlmChain = localMockLlm;
 
 /** Test seam: replace the chain used by POST /chat (restored by resetSessions). */
@@ -31,6 +33,8 @@ export const setLlmChain = (chain: LlmChain) => {
 /** Test/local helper: drop all sessions and restart ids at session-1. */
 export const resetSessions = () => {
   sessions.clear();
+  tails.clear();
+  reserved = 0;
   counter = 0;
   llmChain = localMockLlm;
 };
@@ -59,20 +63,37 @@ app.post('/chat', async (c) => {
   if (sessionId !== undefined && !nonEmpty(sessionId)) {
     return c.json(bad('invalid_session_id', 'sessionId must be a non-empty string.'), 400);
   }
-  let id: string | undefined;
-  let prior: Turn[] = [];
+  const userTurn = { role: 'user' as const, content: message.trim() };
+  // New session: reserve a slot synchronously so concurrent creates cannot exceed MAX_SESSIONS.
   if (sessionId === undefined) {
-    if (sessions.size >= MAX_SESSIONS) {
+    if (sessions.size + reserved >= MAX_SESSIONS) {
       return c.json(bad('session_limit_reached', 'Too many active sessions.'), 503);
     }
-  } else if (sessions.has(sessionId)) {
-    id = sessionId;
-    prior = sessions.get(id)!;
-  } else {
+    reserved++;
+    try {
+      return await runTurn(c, undefined, userTurn);
+    } finally {
+      reserved--;
+    }
+  }
+  if (!sessions.has(sessionId)) {
     return c.json(bad('unknown_session', 'sessionId does not match an existing session.'), 404);
   }
+  // Serialize turns per session: wait for the previous turn, then read history fresh.
+  const prev = tails.get(sessionId) ?? Promise.resolve();
+  const run = prev.then(() => runTurn(c, sessionId, userTurn));
+  const tail = run.catch(() => undefined);
+  tails.set(sessionId, tail);
+  try {
+    return await run;
+  } finally {
+    if (tails.get(sessionId) === tail) tails.delete(sessionId);
+  }
+});
+
+async function runTurn(c: Context, id: string | undefined, userTurn: Turn) {
+  const prior = id === undefined ? [] : sessions.get(id)!;
   // Call the chain before touching session state so failures leave no trace.
-  const userTurn = { role: 'user' as const, content: message.trim() };
   let reply: string;
   try {
     reply = (await invokeLlm(llmChain, { messages: [...prior, userTurn] })).text;
@@ -80,13 +101,9 @@ app.post('/chat', async (c) => {
     return c.json(bad('llm_unavailable', 'Language model is unavailable.'), 503);
   }
   id ??= `session-${++counter}`;
-  const history = [
-    ...prior,
-    userTurn,
-    { role: 'assistant' as const, content: reply },
-  ].slice(-MAX_HISTORY);
+  const history = [...prior, userTurn, { role: 'assistant' as const, content: reply }].slice(-MAX_HISTORY);
   sessions.set(id, history);
   return c.json({ contractVersion: 1, sessionId: id, reply, history });
-});
+}
 
 export default app;

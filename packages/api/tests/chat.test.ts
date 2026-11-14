@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { MAX_HISTORY, MAX_SESSIONS, app, resetSessions } from '../src/index.js';
+import { MAX_HISTORY, MAX_SESSIONS, app, resetSessions, setLlmChain } from '../src/index.js';
 
 beforeEach(resetSessions);
 
@@ -100,6 +100,45 @@ describe('POST /chat validation', () => {
     expect(res.status).toBe(400);
     expect(res.headers.get('content-type')).toBe('application/json');
     expect(await res.text()).toBe(err(code, message));
+  });
+});
+
+describe('one turn at a time per session', () => {
+  it('serializes concurrent turns on one session without losing history', async () => {
+    await post('{"message":"a"}');
+    setLlmChain(async (r) => {
+      await new Promise((res) => setTimeout(res, 5));
+      return { text: 'R' + r.messages.length };
+    });
+    const send = (m: string) => post(`{"sessionId":"session-1","message":"${m}"}`);
+    const [r1, r2] = await Promise.all([send('b'), send('c')]);
+    expect((await json(r1)).history.length).toBe(4);
+    expect((await json(r2)).history.map((t: any) => t.content)).toEqual([
+      'a', 'Local placeholder reply: a', 'b', 'R3', 'c', 'R5',
+    ]);
+  });
+
+  it('lets different sessions proceed independently', async () => {
+    await post('{"message":"a"}');
+    await post('{"message":"b"}');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    setLlmChain(async (r) => {
+      if (r.messages.at(-1)!.content === 'slow') await gate;
+      return { text: 'ok' };
+    });
+    const slow = post('{"sessionId":"session-1","message":"slow"}');
+    const fast = await post('{"sessionId":"session-2","message":"fast"}');
+    expect(fast.status).toBe(200);
+    release();
+    expect((await slow).status).toBe(200);
+  });
+
+  it('does not exceed MAX_SESSIONS under concurrent creates', async () => {
+    setLlmChain(async () => ({ text: 'ok' }));
+    const rs = await Promise.all(Array.from({ length: MAX_SESSIONS + 5 }, () => post('{"message":"x"}')));
+    expect(rs.filter((r) => r.status === 200).length).toBe(MAX_SESSIONS);
+    expect(rs.filter((r) => r.status === 503).length).toBe(5);
   });
 });
 
