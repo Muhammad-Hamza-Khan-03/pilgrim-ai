@@ -44,6 +44,7 @@ export interface KnowledgeRetrievalContextProjector {
 export type KnowledgeRetrievalContextProjectorOptions = Readonly<{
   maxCharactersPerItem?: number;
   maxTotalCharacters?: number;
+  order?: 'score' | 'input';
 }>;
 
 const invalidRequest = (message: string) => new KnowledgeRetrievalError('INVALID_REQUEST', message);
@@ -74,8 +75,13 @@ function validateHit(hit: KnowledgeRetrievalHit, datasetVersion: number): void {
 }
 
 export function createKnowledgeRetrievalContextProjector(options: KnowledgeRetrievalContextProjectorOptions = {}): KnowledgeRetrievalContextProjector {
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) throw invalidRequest('options must be an object');
+  if (options.order !== undefined && options.order !== 'score' && options.order !== 'input') throw invalidRequest("order must be 'score' or 'input'");
+  bound(options.maxCharactersPerItem, DEFAULT_KNOWLEDGE_CONTEXT_MAX_CHARACTERS_PER_ITEM, 'maxCharactersPerItem');
+  bound(options.maxTotalCharacters, DEFAULT_KNOWLEDGE_CONTEXT_MAX_TOTAL_CHARACTERS, 'maxTotalCharacters');
   return {
     project(request) {
+      if (request === null || typeof request !== 'object') throw invalidRequest('request must be an object');
       const { datasetVersion, limit, results } = request;
       if (!Number.isSafeInteger(datasetVersion) || datasetVersion < 0) throw invalidRequest('datasetVersion must be a nonnegative safe integer');
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_KNOWLEDGE_RETRIEVAL_LIMIT) throw invalidRequest(`limit must be an integer from 1 to ${MAX_KNOWLEDGE_RETRIEVAL_LIMIT}`);
@@ -90,10 +96,11 @@ export function createKnowledgeRetrievalContextProjector(options: KnowledgeRetri
         if (seen.has(hit.recordId)) throw new KnowledgeRetrievalError('DUPLICATE_RECORD_ID', `duplicate recordId ${hit.recordId}`);
         seen.add(hit.recordId);
       }
-      const sorted = [...results.results].sort((a, b) => b.score - a.score || compare(a.recordId, b.recordId)
+      const ordered = options.order === 'input' ? [...results.results] : [...results.results].sort((a, b) => b.score - a.score || compare(a.recordId, b.recordId)
         || compare(a.provenance.sourceId, b.provenance.sourceId) || compare(a.provenance.blockId, b.provenance.blockId)
         || a.provenance.startLine - b.provenance.startLine || a.provenance.endLine - b.provenance.endLine
-        || compare(a.provenance.chunkId, b.provenance.chunkId)).slice(0, limit);
+        || compare(a.provenance.chunkId, b.provenance.chunkId));
+      const sorted = ordered.slice(0, limit);
 
       const items: KnowledgeRetrievalContextItem[] = [];
       let used = 0;

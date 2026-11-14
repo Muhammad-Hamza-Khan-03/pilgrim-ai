@@ -210,6 +210,8 @@ export type { KnowledgeHybridRetriever, KnowledgeHybridRetrieverOptions, Knowled
 export { createKnowledgeRetrievalContextProjector } from './knowledge-retrieval-context.js';
 export { createDeterministicKnowledgeReranker } from './knowledge-reranking.js';
 export type { KnowledgeRerankRequest, KnowledgeReranker, KnowledgeRerankerOptions } from './knowledge-reranking.js';
+export { createKnowledgeAnswerContextBuilder } from './knowledge-answer-context.js';
+export type { KnowledgeAnswerContextBuilder, KnowledgeAnswerContextBuilderOptions, KnowledgeAnswerContextRequest } from './knowledge-answer-context.js';
 export { createKnowledgeRetrievalContextGate } from './knowledge-retrieval-context-gate.js';
 export type {
   KnowledgeRetrievalContextGate,
