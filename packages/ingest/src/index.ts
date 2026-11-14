@@ -208,6 +208,15 @@ export { createInMemoryKeywordKnowledgeRetriever, createInMemoryVectorKnowledgeR
 export { createInMemoryHybridKnowledgeRetriever } from './knowledge-hybrid-retrieval.js';
 export type { KnowledgeHybridRetriever, KnowledgeHybridRetrieverOptions, KnowledgeHybridSearchRequest } from './knowledge-hybrid-retrieval.js';
 export { createKnowledgeRetrievalContextProjector } from './knowledge-retrieval-context.js';
+export { createKnowledgeRetrievalContextGate } from './knowledge-retrieval-context-gate.js';
+export type {
+  KnowledgeRetrievalContextGate,
+  KnowledgeRetrievalContextGateInsufficientResult,
+  KnowledgeRetrievalContextGateReadyResult,
+  KnowledgeRetrievalContextGateRequest,
+  KnowledgeRetrievalContextGateResult,
+  KnowledgeRetrievalContextGateUnavailableResult,
+} from './knowledge-retrieval-context-gate.js';
 export type {
   KnowledgeRetrievalContextAvailableResult,
   KnowledgeRetrievalContextCitation,
