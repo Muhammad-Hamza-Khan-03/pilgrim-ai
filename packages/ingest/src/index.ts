@@ -205,6 +205,8 @@ export type {
 } from './knowledge-index-staging-orchestrator.js';
 
 export { createInMemoryKeywordKnowledgeRetriever, createInMemoryVectorKnowledgeRetriever, KnowledgeRetrievalError, MAX_KNOWLEDGE_RETRIEVAL_LIMIT } from './in-memory-knowledge-retrieval.js';
+export { createInMemoryHybridKnowledgeRetriever } from './knowledge-hybrid-retrieval.js';
+export type { KnowledgeHybridRetriever, KnowledgeHybridRetrieverOptions, KnowledgeHybridSearchRequest } from './knowledge-hybrid-retrieval.js';
 export type {
   KnowledgeKeywordRetriever,
   KnowledgeKeywordSearchRequest,
