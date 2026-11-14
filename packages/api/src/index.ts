@@ -1,4 +1,7 @@
 import { Hono } from 'hono';
+import { type LlmChain, invokeLlm, localMockLlm } from './llm.js';
+
+export * from './llm.js';
 
 export const app = new Hono();
 
@@ -18,15 +21,19 @@ export const MAX_SESSIONS = 100;
 type Turn = { role: 'user' | 'assistant'; content: string };
 const sessions = new Map<string, Turn[]>();
 let counter = 0;
+let llmChain: LlmChain = localMockLlm;
+
+/** Test seam: replace the chain used by POST /chat (restored by resetSessions). */
+export const setLlmChain = (chain: LlmChain) => {
+  llmChain = chain;
+};
 
 /** Test/local helper: drop all sessions and restart ids at session-1. */
 export const resetSessions = () => {
   sessions.clear();
   counter = 0;
+  llmChain = localMockLlm;
 };
-
-// Seam for a future provider: deterministic, derived only from the message.
-const localReply = (message: string) => `Local placeholder reply: ${message.trim()}`;
 
 const bad = (code: string, message: string) => ({ error: { code, message } });
 const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
@@ -52,22 +59,30 @@ app.post('/chat', async (c) => {
   if (sessionId !== undefined && !nonEmpty(sessionId)) {
     return c.json(bad('invalid_session_id', 'sessionId must be a non-empty string.'), 400);
   }
-  let id: string;
+  let id: string | undefined;
+  let prior: Turn[] = [];
   if (sessionId === undefined) {
     if (sessions.size >= MAX_SESSIONS) {
       return c.json(bad('session_limit_reached', 'Too many active sessions.'), 503);
     }
-    id = `session-${++counter}`;
-    sessions.set(id, []);
   } else if (sessions.has(sessionId)) {
     id = sessionId;
+    prior = sessions.get(id)!;
   } else {
     return c.json(bad('unknown_session', 'sessionId does not match an existing session.'), 404);
   }
-  const reply = localReply(message);
+  // Call the chain before touching session state so failures leave no trace.
+  const userTurn = { role: 'user' as const, content: message.trim() };
+  let reply: string;
+  try {
+    reply = (await invokeLlm(llmChain, { messages: [...prior, userTurn] })).text;
+  } catch {
+    return c.json(bad('llm_unavailable', 'Language model is unavailable.'), 503);
+  }
+  id ??= `session-${++counter}`;
   const history = [
-    ...sessions.get(id)!,
-    { role: 'user' as const, content: message.trim() },
+    ...prior,
+    userTurn,
     { role: 'assistant' as const, content: reply },
   ].slice(-MAX_HISTORY);
   sessions.set(id, history);
