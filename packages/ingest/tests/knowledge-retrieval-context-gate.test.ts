@@ -48,4 +48,24 @@ describe('knowledge retrieval context gate', () => {
     expect(code(() => run(avail(item('a', NaN))))).toBe('INVALID_RECORD');
     expect(code(() => run(avail({ ...item('a', 1), citation: null as never })))).toBe('INVALID_RECORD');
   });
+
+  it('validates every item citation, not only the first', () => {
+    const bad: Record<string, unknown>[] = [
+      { datasetVersion: 4 }, { datasetVersion: '3' },
+      ...(['sourceId', 'chunkId', 'blockId'] as const).flatMap((k) => ['', 1, null, undefined].map((v) => ({ [k]: v }))),
+      ...(['startLine', 'endLine'] as const).flatMap((k) => [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '1', undefined].map((v) => ({ [k]: v }))),
+      { startLine: 5, endLine: 4 },
+    ];
+    for (const over of bad) {
+      const ok = item('a', 2);
+      const broken = { ...item('b', 1), citation: { ...ok.citation, ...over } };
+      expect(code(() => run(avail(ok, broken))), JSON.stringify(over)).toBe('INVALID_RECORD');
+    }
+    expect(code(() => run(avail({ ...item('a', 2), citation: {} as never })))).toBe('INVALID_RECORD');
+  });
+
+  it('accepts valid citations, including equal start and end lines', () => {
+    const a = item('a', 2);
+    expect(code(() => run(avail({ ...a, citation: { ...a.citation, startLine: 7, endLine: 7 } })))).toBe('none');
+  });
 });

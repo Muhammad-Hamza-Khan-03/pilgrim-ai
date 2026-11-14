@@ -49,10 +49,17 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-function validateItem(item: unknown): void {
+function validateItem(item: unknown, datasetVersion: number): void {
   const i = item as Record<string, unknown> | null;
   if (!isObject(i) || typeof i.recordId !== 'string' || typeof i.text !== 'string' || typeof i.score !== 'number' || !Number.isFinite(i.score) || !isObject(i.citation)) {
     throw invalidRecord('context item is malformed');
+  }
+  const c = i.citation as Record<string, unknown>;
+  const id = (v: unknown) => typeof v === 'string' && v.length > 0;
+  const line = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 1;
+  if (c.datasetVersion !== datasetVersion || !id(c.sourceId) || !id(c.chunkId) || !id(c.blockId)
+    || !line(c.startLine) || !line(c.endLine) || c.endLine < c.startLine) {
+    throw invalidRecord('context item citation is malformed or from another dataset version');
   }
 }
 
@@ -70,7 +77,7 @@ export function createKnowledgeRetrievalContextGate(): KnowledgeRetrievalContext
       }
       if (context.status !== 'available' || context.datasetVersion !== datasetVersion) throw invalidRecord('context is malformed or from another dataset version');
       if (!Number.isSafeInteger(context.totalCharacters) || context.totalCharacters < 0) throw invalidRecord('context totalCharacters is malformed');
-      context.items.forEach(validateItem);
+      for (const i of context.items) validateItem(i, datasetVersion);
 
       if (context.items.length === 0) {
         if (context.totalCharacters !== 0) throw invalidRecord('context totalCharacters is malformed');
