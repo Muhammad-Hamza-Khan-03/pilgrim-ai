@@ -2,7 +2,7 @@ export const LLM_MAX_MESSAGES = 64;
 export const LLM_MAX_CONTENT_CHARS = 8000;
 
 export type LlmMessage = { readonly role: 'user' | 'assistant'; readonly content: string };
-export type LlmRequest = { readonly messages: readonly LlmMessage[] };
+export type LlmRequest = { readonly messages: readonly LlmMessage[]; readonly summary?: string };
 export type LlmResponse = { readonly text: string };
 export type LlmChain = (request: LlmRequest) => LlmResponse | Promise<LlmResponse>;
 
@@ -22,6 +22,10 @@ export function validateLlmRequest(request: unknown): asserts request is LlmRequ
     throw new LlmError('invalid_request', m);
   };
   const messages = isObj(request) ? request.messages : undefined;
+  const summary = isObj(request) ? request.summary : undefined;
+  if (summary !== undefined && (typeof summary !== 'string' || summary.length > LLM_MAX_CONTENT_CHARS)) {
+    return bad('summary must be a string of bounded length.');
+  }
   if (!Array.isArray(messages) || messages.length === 0 || messages.length > LLM_MAX_MESSAGES) {
     return bad(`messages must have 1-${LLM_MAX_MESSAGES} entries.`);
   }
