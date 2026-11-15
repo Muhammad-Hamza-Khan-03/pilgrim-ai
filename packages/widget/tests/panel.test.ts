@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ChatClientError } from '../src/chat.js';
-import { mountPanel, type PanelStream, type PanelClient, type PanelDocument, type PanelEvent, type PanelNode } from '../src/panel.js';
+import { mountPanel, type PanelStream, type PanelCard, type BookingAction, type PanelClient, type PanelDocument, type PanelEvent, type PanelNode } from '../src/panel.js';
 
 class N implements PanelNode {
   attrs = new Map<string, string>();
@@ -219,5 +219,113 @@ describe('chat panel', () => {
       await tick();
       expect([sig.aborted, t.alert.textContent, t.send.disabled]).toEqual([true, '', false]);
     });
+  });
+});
+
+describe('cards and mock booking', () => {
+  const cards: PanelCard[] = [
+    { id: 'a', title: '<b>Hotel A</b>', description: 'Near the <i>Haram</i>', priceLabel: 'SAR 100', chips: [{ id: 'c1', label: 'Breakfast' }, { id: 'c2', label: '<u>5 min</u>' }] },
+    { id: 'b', title: 'Hotel B', description: 'Budget', priceLabel: 'SAR 50' },
+  ];
+  function carded(fixtures?: { cards: PanelCard[] }, withCb = true) {
+    const actions: BookingAction[] = [];
+    const p = mountPanel({ createElement: (t) => new N(t), body: new N('body') }, { client: null, fixtures, ...(withCb ? { onBookingAction: (a: BookingAction) => { actions.push(a); } } : {}) });
+    const root = (p.host as N).shadow!;
+    const btn = (label: string, i = 0) => root.find((n) => n.tag === 'button' && (n.attrs.get('aria-label') ?? n.textContent) === label)[i]!;
+    const items = () => root.find((n) => n.attrs.get('role') === 'listitem' && n.attrs.has('data-card'));
+    const text = (n: N): string => [n.textContent ?? '', ...n.kids.map(text)].join('|');
+    return { root, actions, btn, items, text };
+  }
+
+  it('renders nothing without fixtures or with empty fixtures', () => {
+    for (const f of [undefined, { cards: [] }]) {
+      const t = carded(f);
+      expect(t.root.find((n) => n.attrs.has('data-cards'))).toEqual([]);
+      expect(t.items()).toEqual([]);
+    }
+  });
+
+  it('renders ordered cards and chips in a labelled list as text only', () => {
+    const t = carded({ cards });
+    const list = t.root.find((n) => n.attrs.get('role') === 'list' && n.attrs.has('data-cards'))[0]!;
+    expect(list.attrs.get('aria-label')).toBeTruthy();
+    expect(t.items().map((n) => n.attrs.get('data-card'))).toEqual(['a', 'b']);
+    const a = t.text(t.items()[0]!);
+    expect(a).toContain('<b>Hotel A</b>');
+    expect(a).toContain('Near the <i>Haram</i>');
+    expect(a).toContain('SAR 100');
+    expect(a.indexOf('Breakfast')).toBeLessThan(a.indexOf('<u>5 min</u>'));
+    expect(t.root.find((n) => ['b', 'i', 'u', 'img', 'a'].includes(n.tag))).toEqual([]);
+    expect(t.btn('Book <b>Hotel A</b>').attrs.get('type')).toBe('button');
+  });
+
+  it('skips malformed cards/chips and duplicate ids', () => {
+    const t = carded({ cards: [{ id: '', title: 'x', description: '', priceLabel: '' }, { id: 'a', title: '', description: '', priceLabel: '' }, { id: 'ok', title: 'Ok', description: 'd', priceLabel: 'p', chips: [{ id: '', label: 'bad' }] }, { id: 'ok', title: 'Dup', description: '', priceLabel: '' }] });
+    expect(t.items().map((n) => n.attrs.get('data-card'))).toEqual(['ok']);
+    expect(t.text(t.items()[0]!)).not.toContain('bad');
+  });
+
+  it('select -> confirm emits once each and ends confirmed with mock-only copy', () => {
+    const t = carded({ cards });
+    const book = t.btn('Book Hotel B');
+    expect(book.attrs.get('aria-pressed')).toBe('false');
+    expect(t.btn('Confirm booking', 1).hidden).toBe(true);
+    book.fire('click');
+    book.fire('click'); // idempotent
+    expect(t.actions).toEqual([{ type: 'select_card', cardId: 'b' }]);
+    expect(book.attrs.get('aria-pressed')).toBe('true');
+    expect(t.btn('Confirm booking', 1).hidden).toBe(false);
+    t.btn('Confirm booking', 1).fire('click');
+    t.btn('Confirm booking', 1).fire('click');
+    expect(t.actions).toEqual([{ type: 'select_card', cardId: 'b' }, { type: 'confirm_booking', cardId: 'b' }]);
+    const txt = t.text(t.items()[1]!);
+    expect(txt).toContain('Booking request ready for Hotel B.');
+    expect(txt).toMatch(/mock/i);
+    expect(txt).not.toMatch(/booked|reserved/i);
+    expect([book.hidden, t.btn('Confirm booking', 1).hidden, t.btn('Cancel', 1).hidden]).toEqual([true, true, true]);
+    book.fire('click');
+    t.btn('Cancel', 1).fire('click');
+    expect(t.actions).toHaveLength(2);
+  });
+
+  it('cancel returns to unselected and emits once; cancel while idle is a no-op', () => {
+    const t = carded({ cards });
+    t.btn('Cancel').fire('click');
+    expect(t.actions).toEqual([]);
+    t.btn('Book <b>Hotel A</b>').fire('click');
+    t.btn('Cancel').fire('click');
+    t.btn('Cancel').fire('click');
+    expect(t.actions).toEqual([{ type: 'select_card', cardId: 'a' }, { type: 'cancel_booking', cardId: 'a' }]);
+    expect(t.btn('Book <b>Hotel A</b>').attrs.get('aria-pressed')).toBe('false');
+    expect(t.btn('Confirm booking').hidden).toBe(true);
+    t.btn('Book <b>Hotel A</b>').fire('click'); // can reselect
+    expect(t.actions).toHaveLength(3);
+  });
+
+  it('selecting another card replaces the previous selection without a cancel notification', () => {
+    const t = carded({ cards });
+    t.btn('Book <b>Hotel A</b>').fire('click');
+    t.btn('Book Hotel B').fire('click');
+    expect(t.btn('Book <b>Hotel A</b>').attrs.get('aria-pressed')).toBe('false');
+    expect(t.btn('Book Hotel B').attrs.get('aria-pressed')).toBe('true');
+    expect(t.btn('Confirm booking', 0).hidden).toBe(true);
+    expect(t.btn('Confirm booking', 1).hidden).toBe(false);
+    expect(t.actions.map((a) => a.type)).toEqual(['select_card', 'select_card']);
+  });
+
+  it('works without a callback and survives a throwing callback', () => {
+    const t = carded({ cards }, false);
+    t.btn('Book Hotel B').fire('click');
+    expect(t.btn('Book Hotel B').attrs.get('aria-pressed')).toBe('true');
+    const p = mountPanel({ createElement: (x) => new N(x), body: new N('body') }, { client: null, fixtures: { cards }, onBookingAction: () => { throw new Error('boom'); } });
+    const b = (p.host as N).shadow!.find((n) => n.attrs.get('aria-label') === 'Book Hotel B')[0]!;
+    expect(() => b.fire('click')).not.toThrow();
+    expect(b.attrs.get('aria-pressed')).toBe('true');
+  });
+
+  it('introduces no network/storage/timer/random/provider usage in the source', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../src/panel.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/\b(fetch|XMLHttpRequest|WebSocket|localStorage|sessionStorage|indexedDB|setTimeout|setInterval|Math\.random|Date\.now|crypto|innerHTML|navigator)\b/);
   });
 });
