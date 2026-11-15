@@ -8,7 +8,7 @@ export type FetchLike = (
   init: { method: 'POST'; headers: Record<string, string>; body: string },
 ) => Promise<FetchResponseLike>;
 
-export type ChatErrorCode = 'invalid_config' | 'invalid_message' | 'network_error' | 'http_error' | 'invalid_response';
+export type ChatErrorCode = 'invalid_config' | 'invalid_message' | 'network_error' | 'http_error' | 'invalid_response' | 'malformed_stream' | 'timeout' | 'aborted';
 export class ChatClientError extends Error {
   constructor(readonly code: ChatErrorCode, message: string, readonly status?: number) {
     super(message);

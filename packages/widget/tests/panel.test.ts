@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ChatClientError } from '../src/chat.js';
-import { mountPanel, type PanelClient, type PanelDocument, type PanelEvent, type PanelNode } from '../src/panel.js';
+import { mountPanel, type PanelStream, type PanelClient, type PanelDocument, type PanelEvent, type PanelNode } from '../src/panel.js';
 
 class N implements PanelNode {
   attrs = new Map<string, string>();
@@ -170,5 +170,54 @@ describe('chat panel', () => {
     expect(dialog.hidden).toBe(false);
     expect(expanded).toEqual([false, true, false, true]);
     expect(body.kids).toEqual([p.host]); // reused, not remounted
+  });
+
+  describe('streaming', () => {
+    function streamed(stream: PanelStream) {
+      const body = new N('body');
+      const p = mountPanel({ createElement: (t) => new N(t), body }, { client: null, stream });
+      const root = (p.host as N).shadow!;
+      const q = (f: (n: N) => boolean) => root.find(f)[0]!;
+      return {
+        p, root, input: q((n) => n.tag === 'textarea'), form: q((n) => n.tag === 'form'), alert: q((n) => n.attrs.get('role') === 'alert'),
+        retry: q((n) => n.textContent === 'Retry'), send: q((n) => n.attrs.get('type') === 'submit'), dialog: q((n) => n.attrs.get('role') === 'dialog'),
+        msgs: () => root.find((n) => n.attrs.get('role') === 'article').map((n) => [n.attrs.get('aria-label'), n.textContent]),
+      };
+    }
+    it('grows one assistant message per chunk as text, and re-enables send', async () => {
+      let push!: (t: string) => void; let end!: () => void;
+      const t = streamed((_m, on) => new Promise<void>((r) => { push = on; end = r; }));
+      t.input.value = '<i>q</i>';
+      t.form.fire('submit');
+      expect(t.send.disabled).toBe(true);
+      push('<b>He'); push('llo');
+      expect(t.msgs()).toEqual([['You', '<i>q</i>'], ['Assistant', '<b>Hello']]);
+      end(); await tick();
+      expect(t.send.disabled).toBe(false);
+      expect(t.root.find((n) => n.tag === 'b')).toEqual([]);
+    });
+    it('shows typed error, keeps partial, and retry resets it without duplicating the user turn', async () => {
+      const runs: Array<(on: (t: string) => void) => Promise<void>> = [
+        async (on) => { on('par'); throw new ChatClientError('timeout', 'x'); },
+        async (on) => { on('full'); },
+      ];
+      const t = streamed((_m, on) => runs.shift()!(on));
+      t.input.value = 'q';
+      t.form.fire('submit'); await tick();
+      expect(t.alert.textContent).toBe('The chat service took too long to respond.');
+      expect(t.msgs()[1]).toEqual(['Assistant', 'par']);
+      t.retry.fire('click'); await tick();
+      expect(t.msgs()).toEqual([['You', 'q'], ['Assistant', 'full']]);
+      expect([t.alert.textContent, t.retry.hidden]).toEqual(['', true]);
+    });
+    it('aborts the in-flight stream on close with no error UI', async () => {
+      let sig!: AbortSignal;
+      const t = streamed((_m, _on, s) => new Promise((_r, rej) => { sig = s; s.addEventListener('abort', () => rej(new ChatClientError('aborted', 'x'))); }));
+      t.input.value = 'q';
+      t.form.fire('submit');
+      t.dialog.fire('keydown', { key: 'Escape' });
+      await tick();
+      expect([sig.aborted, t.alert.textContent, t.send.disabled]).toEqual([true, '', false]);
+    });
   });
 });

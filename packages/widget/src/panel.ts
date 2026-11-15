@@ -29,9 +29,13 @@ const ERRORS: Record<string, string> = {
   network_error: 'Could not reach the chat service.',
   http_error: 'The chat service returned an error.',
   invalid_response: 'The chat service sent an unreadable reply.',
+  malformed_stream: 'The chat service sent an unreadable reply.',
+  timeout: 'The chat service took too long to respond.',
 };
 
-export function mountPanel(doc: PanelDocument, opts: { client: PanelClient | null; onClose?: () => void; onOpen?: () => void }) {
+export type PanelStream = (message: string, onChunk: (text: string) => void, signal: AbortSignal) => Promise<unknown>;
+
+export function mountPanel(doc: PanelDocument, opts: { client: PanelClient | null; stream?: PanelStream; onClose?: () => void; onOpen?: () => void }) {
   const el = (tag: string, attrs: Record<string, string> = {}, text?: string, ...kids: PanelNode[]) => {
     const n = doc.createElement(tag);
     for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
@@ -57,8 +61,13 @@ export function mountPanel(doc: PanelDocument, opts: { client: PanelClient | nul
 
   let busy = false;
   let failed: string | null = null; // text awaiting retry
-  const addMessage = (role: 'user' | 'assistant', text: string) =>
-    log.appendChild(el('p', { role: 'article', 'data-role': role, 'aria-label': role === 'user' ? 'You' : 'Assistant' }, text));
+  let ctl: AbortController | null = null;
+  let live: PanelNode | null = null; // assistant message being streamed
+  const addMessage = (role: 'user' | 'assistant', text: string) => {
+    const m = el('p', { role: 'article', 'data-role': role, 'aria-label': role === 'user' ? 'You' : 'Assistant' }, text);
+    log.appendChild(m);
+    return m;
+  };
   const setBusy = (b: boolean) => {
     busy = b;
     sendBtn.disabled = retryBtn.disabled = b;
@@ -74,14 +83,25 @@ export function mountPanel(doc: PanelDocument, opts: { client: PanelClient | nul
     if (fresh) addMessage('user', text);
     setBusy(true);
     try {
+      if (opts.stream) {
+        ctl = new AbortController();
+        const own = ctl;
+        if (live) live.textContent = ''; // retry reuses the partial message
+        await opts.stream(text, (c) => { live ??= addMessage('assistant', ''); live.textContent += c; }, own.signal);
+        if (own.signal.aborted) throw new ChatClientError('aborted', 'closed');
+        live = null;
+        setBusy(false);
+        return;
+      }
       const r = opts.client ? await opts.client.send(text) : null;
       if (!r) throw new ChatClientError('invalid_config', 'no client');
       if (typeof r.reply !== 'string') throw new ChatClientError('invalid_response', 'bad reply');
       addMessage('assistant', r.reply);
     } catch (e) {
+      if (e instanceof ChatClientError && e.code === 'aborted') { live = null; setBusy(false); return; } // closed by the user: no error UI
       failed = text;
       errorBox.textContent = ERRORS[e instanceof ChatClientError ? e.code : 'network_error'] ?? ERRORS.network_error!;
-      retryBtn.hidden = opts.client === null;
+      retryBtn.hidden = opts.client === null && !opts.stream;
     }
     setBusy(false);
   }
@@ -97,6 +117,7 @@ export function mountPanel(doc: PanelDocument, opts: { client: PanelClient | nul
     dialog.setAttribute('aria-hidden', String(!open));
   }
   function close() {
+    ctl?.abort();
     setOpen(false);
     opts.onClose?.();
   }
