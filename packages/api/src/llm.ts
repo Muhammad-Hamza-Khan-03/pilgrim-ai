@@ -59,3 +59,21 @@ export async function invokeLlm(chain: LlmChain, request: LlmRequest): Promise<L
   }
   return { text: res.text };
 }
+
+const EMAIL_RE = /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63})+/g;
+// shortcut: phone-like = 7-15 digits with optional separators and leading +; no names/NER, upgrade with a real PII detector.
+const PHONE_RE = /(?!\d{4}-\d{2}-\d{2}\b)\+?\(?\d(?:(?:[\s.-]?\(?|\)[\s.-]?)\d){6,14}/g;
+
+/** Pure, deterministic, non-throwing masking of emails and phone-like numbers; output capped at LLM_MAX_CONTENT_CHARS. */
+export function maskPii(text: string): string {
+  if (typeof text !== 'string') return '';
+  return text.replace(EMAIL_RE, '[email]').replace(PHONE_RE, '[phone]').slice(0, LLM_MAX_CONTENT_CHARS);
+}
+
+/** Deep copy of a request with all message contents and the summary masked. */
+export function maskLlmRequest(request: LlmRequest): LlmRequest {
+  return {
+    messages: request.messages.map((m) => ({ role: m.role, content: maskPii(m.content) })),
+    ...(request.summary !== undefined && { summary: maskPii(request.summary) }),
+  };
+}

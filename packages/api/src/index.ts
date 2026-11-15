@@ -1,5 +1,5 @@
 import { type Context, Hono } from 'hono';
-import { type LlmChain, invokeLlm, localMockLlm } from './llm.js';
+import { type LlmChain, invokeLlm, localMockLlm, maskLlmRequest } from './llm.js';
 
 export * from './llm.js';
 
@@ -102,7 +102,7 @@ async function runTurn(c: Context, id: string | undefined, userTurn: Turn) {
   // Call the chain before touching session state so failures leave no trace.
   let reply: string;
   try {
-    reply = (await invokeLlm(llmChain, { messages: [...prior, userTurn], ...(priorSummary && { summary: priorSummary }) })).text;
+    reply = (await invokeLlm(llmChain, maskLlmRequest({ messages: [...prior, userTurn], ...(priorSummary && { summary: priorSummary }) }))).text;
   } catch {
     return c.json(bad('llm_unavailable', 'Language model is unavailable.'), 503);
   }
