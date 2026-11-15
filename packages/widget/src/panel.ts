@@ -1,6 +1,7 @@
 // Chat panel seam: isolated (Shadow DOM) accessible dialog over an injected chat client.
 // Structural DOM types keep the bundle DOM-lib free; tests use a fake. No network, storage or globals here.
 import { ChatClientError, type ChatResponse } from './chat.js';
+import { MAX_DRAFT_CHARS, MAX_MESSAGES, MAX_MESSAGE_CHARS, createSessionId, isSessionId, parseSnapshot, serializeSnapshot, type PanelSnapshot, type SessionStore, type SnapshotCard } from './session.js';
 
 export interface PanelEvent { key?: string; shiftKey?: boolean; isComposing?: boolean; preventDefault(): void }
 export interface PanelNode {
@@ -45,7 +46,15 @@ export type BookingAction =
 export function mountPanel(doc: PanelDocument, opts: {
   client: PanelClient | null; stream?: PanelStream; onClose?: () => void; onOpen?: () => void;
   fixtures?: { cards: PanelCard[] }; onBookingAction?: (action: BookingAction) => void;
+  /** Optional resume seam: an injected store (e.g. in-memory); invalid stored data is ignored (fail closed). */
+  session?: { store: SessionStore; sessionId?: string };
 }) {
+  const session = opts.session;
+  const stored = session ? (() => { try { return parseSnapshot(session.store.load()); } catch { return null; } })() : null;
+  const wanted = session?.sessionId;
+  const resume = stored && (wanted === undefined || wanted === stored.sessionId) ? stored : null;
+  const sessionId = resume?.sessionId ?? (isSessionId(wanted) ? wanted : createSessionId());
+  const shown: SnapshotCard[] = [];
   const el = (tag: string, attrs: Record<string, string> = {}, text?: string, ...kids: PanelNode[]) => {
     const n = doc.createElement(tag);
     for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
@@ -67,15 +76,16 @@ export function mountPanel(doc: PanelDocument, opts: {
   const seen = new Set<string>();
   const nonEmpty = (s: unknown): s is string => typeof s === 'string' && s !== '';
   const views: Array<{ id: string; render(selected: boolean): void }> = [];
-  let selectedId: string | null = null;
-  let confirmedIds = new Set<string>();
+  let selectedId: string | null = resume?.selectedCardId ?? null;
+  let confirmedIds = new Set<string>(resume?.confirmedCardIds);
   const renderAll = () => views.forEach((v) => v.render(selectedId === v.id));
   const cardItems: PanelNode[] = [];
-  for (const c of opts.fixtures?.cards ?? []) {
+  for (const c of resume ? resume.cards : opts.fixtures?.cards ?? []) {
     if (!c || !nonEmpty(c.id) || !nonEmpty(c.title) || seen.has(c.id)) continue;
     seen.add(c.id);
-    const chips = (c.chips ?? []).filter((x) => x && nonEmpty(x.id) && nonEmpty(x.label))
-      .map((x) => el('span', { role: 'listitem', 'data-chip': x.id }, x.label));
+    const goodChips = (c.chips ?? []).filter((x) => x && nonEmpty(x.id) && nonEmpty(x.label));
+    shown.push({ id: c.id, title: c.title, description: c.description, priceLabel: c.priceLabel, chips: goodChips.map((x) => ({ id: x.id, label: x.label })) });
+    const chips = goodChips.map((x) => el('span', { role: 'listitem', 'data-chip': x.id }, x.label));
     const book = el('button', { type: 'button', 'aria-label': `Book ${c.title}`, 'aria-pressed': 'false' }, `Book ${c.title}`);
     const confirm = el('button', { type: 'button' }, 'Confirm booking');
     const cancel = el('button', { type: 'button' }, 'Cancel');
@@ -98,6 +108,7 @@ export function mountPanel(doc: PanelDocument, opts: {
       if (selectedId === id || confirmedIds.has(id)) return;
       selectedId = id;
       renderAll();
+      persist();
       notify({ type: 'select_card', cardId: id });
     });
     confirm.addEventListener('click', () => {
@@ -105,12 +116,14 @@ export function mountPanel(doc: PanelDocument, opts: {
       selectedId = null;
       confirmedIds = new Set(confirmedIds).add(id);
       renderAll();
+      persist();
       notify({ type: 'confirm_booking', cardId: id });
     });
     cancel.addEventListener('click', () => {
       if (selectedId !== id) return;
       selectedId = null;
       renderAll();
+      persist();
       notify({ type: 'cancel_booking', cardId: id });
     });
     cardItems.push(item);
@@ -131,8 +144,23 @@ export function mountPanel(doc: PanelDocument, opts: {
   const addMessage = (role: 'user' | 'assistant', text: string) => {
     const m = el('p', { role: 'article', 'data-role': role, 'aria-label': role === 'user' ? 'You' : 'Assistant' }, text);
     log.appendChild(m);
+    transcript.push({ role, node: m });
     return m;
   };
+  const transcript: Array<{ role: 'user' | 'assistant'; node: PanelNode }> = [];
+  const snapshot = (): PanelSnapshot => ({
+    version: 1, sessionId,
+    messages: transcript.slice(-MAX_MESSAGES).map((e) => ({ role: e.role, text: (e.node.textContent ?? '').slice(0, MAX_MESSAGE_CHARS) })),
+    cards: shown.map((c) => ({ ...c, chips: [...c.chips] })),
+    selectedCardId: selectedId, confirmedCardIds: [...confirmedIds], open: !dialog.hidden,
+    draft: (input.value ?? '').slice(0, MAX_DRAFT_CHARS),
+  });
+  // Best effort: an oversized/invalid snapshot or failing store keeps the last good saved one.
+  function persist() {
+    if (!session) return;
+    try { session.store.save(serializeSnapshot(snapshot())); } catch { /* fail closed */ }
+  }
+  for (const m of resume?.messages ?? []) addMessage(m.role, m.text);
   const setBusy = (b: boolean) => {
     busy = b;
     sendBtn.disabled = retryBtn.disabled = b;
@@ -145,7 +173,7 @@ export function mountPanel(doc: PanelDocument, opts: {
     errorBox.textContent = '';
     retryBtn.hidden = true;
     failed = null;
-    if (fresh) addMessage('user', text);
+    if (fresh) { addMessage('user', text); persist(); }
     setBusy(true);
     try {
       if (opts.stream) {
@@ -156,12 +184,14 @@ export function mountPanel(doc: PanelDocument, opts: {
         if (own.signal.aborted) throw new ChatClientError('aborted', 'closed');
         live = null;
         setBusy(false);
+        persist();
         return;
       }
       const r = opts.client ? await opts.client.send(text) : null;
       if (!r) throw new ChatClientError('invalid_config', 'no client');
       if (typeof r.reply !== 'string') throw new ChatClientError('invalid_response', 'bad reply');
       addMessage('assistant', r.reply);
+      persist();
     } catch (e) {
       if (e instanceof ChatClientError && e.code === 'aborted') { live = null; setBusy(false); return; } // closed by the user: no error UI
       failed = text;
@@ -180,6 +210,7 @@ export function mountPanel(doc: PanelDocument, opts: {
   function setOpen(open: boolean) {
     dialog.hidden = !open;
     dialog.setAttribute('aria-hidden', String(!open));
+    persist();
   }
   function close() {
     ctl?.abort();
@@ -202,7 +233,7 @@ export function mountPanel(doc: PanelDocument, opts: {
   retryBtn.addEventListener('click', () => { if (failed) void run(failed, false); });
 
   doc.body?.appendChild(host);
-  setOpen(true);
-  input.focus?.();
-  return { host, close, open, toggle };
+  if (resume) { input.value = resume.draft; setOpen(resume.open); } else setOpen(true);
+  if (!dialog.hidden) input.focus?.();
+  return { host, close, open, toggle, sessionId, snapshot };
 }
