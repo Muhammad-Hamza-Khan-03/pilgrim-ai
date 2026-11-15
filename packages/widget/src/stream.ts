@@ -69,6 +69,7 @@ async function attempt(open: StreamOpen, message: string, o: StreamOptions, stat
     const ab = () => fail(new ChatClientError('aborted', 'Chat request aborted.'));
     o.signal?.addEventListener('abort', ab);
     const end = () => { timer.clear(h); o.signal?.removeEventListener('abort', ab); };
+    if (o.signal?.aborted) { end(); ab(); } // aborted between guards (e.g. synchronously from onChunk): no abort event will fire
     p.then((v) => { end(); res(v); }, () => { end(); rej(new ChatClientError('network_error', 'Chat stream failed.')); });
   });
   let it: AsyncIterator<string> | undefined;

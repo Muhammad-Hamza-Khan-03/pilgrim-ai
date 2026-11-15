@@ -66,6 +66,21 @@ describe('streamChat', () => {
     expect(await p).toBe('aborted');
     expect([closed, srcSignal.aborted]).toEqual([true, true]);
   });
+  it('aborting synchronously from onChunk rejects the next stalled wait as aborted, not timeout', async () => {
+    const ac = new AbortController();
+    const t = fakeTimer();
+    let closed = false;
+    const open: StreamOpen = async () => {
+      let i = 0;
+      return { [Symbol.asyncIterator]: () => ({
+        next: () => (i++ === 0 ? Promise.resolve({ done: false as const, value: chunk('a') }) : never<IteratorResult<string>>()),
+        return: async () => { closed = true; return { done: true as const, value: undefined }; },
+      }) };
+    };
+    const p = code(streamChat(open, 'q', { onChunk: () => ac.abort(), signal: ac.signal, timer: t.timer, retries: 2 }));
+    expect(await p).toBe('aborted'); // timer never fired
+    expect([closed, t.pending()]).toEqual([true, 0]);
+  });
   it('times out a stalled wait, clears timers on success', async () => {
     const t = fakeTimer();
     const stalled: StreamOpen = async () => ({ [Symbol.asyncIterator]: () => ({ next: () => never<IteratorResult<string>>() }) });
