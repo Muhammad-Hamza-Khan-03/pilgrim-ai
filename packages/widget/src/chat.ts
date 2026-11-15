@@ -69,3 +69,20 @@ export function createChatClient(opts: { apiUrl: string; fetch: FetchLike; sessi
     },
   };
 }
+
+// Browser auto-run: the loader injects this script on launcher activation; mount the panel then.
+// The page's fetch is injected here at the edge; the panel itself never touches globals.
+import { mountPanel, type PanelDocument } from './panel.js';
+export { mountPanel };
+interface ScriptLike { getAttribute(n: string): string | null }
+const g = globalThis as { document?: PanelDocument & { currentScript?: ScriptLike | null; querySelector(s: string): { setAttribute(n: string, v: string): void } | null }; fetch?: FetchLike };
+const cur = g.document?.currentScript;
+if (g.document && cur && cur.getAttribute('data-pilgrim-bundle') !== null) {
+  const doc = g.document;
+  let client: ReturnType<typeof createChatClient> | null = null;
+  try {
+    const api = cur.getAttribute('data-api-url');
+    if (api && g.fetch) client = createChatClient({ apiUrl: api, fetch: g.fetch.bind(globalThis) as FetchLike });
+  } catch { /* invalid config: panel shows a typed error on submit */ }
+  mountPanel(doc, { client, onClose: () => doc.querySelector('[data-pilgrim-launcher]')?.setAttribute('aria-expanded', 'false') });
+}
