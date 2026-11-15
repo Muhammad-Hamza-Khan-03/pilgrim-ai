@@ -64,6 +64,13 @@ describe('chat client', () => {
     await expect(client.send('a')).rejects.toMatchObject({ code: 'http_error', status: 500 });
   });
 
+  it('rejects apiUrl with query or fragment as invalid_config', () => {
+    const fetch: FetchLike = async () => { throw new Error('should not call'); };
+    for (const apiUrl of ['https://a.test/x?q=1', 'https://a.test/x#frag', 'https://a.test/x?', 'https://a.test/x#']) {
+      expect(() => createChatClient({ apiUrl, fetch })).toThrowError(expect.objectContaining({ code: 'invalid_config' }));
+    }
+  });
+
   it('fails closed on bad config or empty message without calling fetch', async () => {
     const fetch: FetchLike = async () => { throw new Error('should not call'); };
     expect(() => createChatClient({ apiUrl: 'javascript:1', fetch })).toThrow(ChatClientError);

@@ -35,6 +35,7 @@ export function createChatClient(opts: { apiUrl: string; fetch: FetchLike; sessi
   try {
     const u = new URL(opts.apiUrl);
     if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error();
+    if (/[?#]/.test(opts.apiUrl)) throw new Error(); // query/fragment would corrupt the appended /chat path
     endpoint = `${u.href.replace(/\/+$/, '')}/chat`;
   } catch {
     throw new ChatClientError('invalid_config', 'apiUrl must be an http(s) URL.');
