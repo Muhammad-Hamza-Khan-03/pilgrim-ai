@@ -1,0 +1,8 @@
+{
+  "tool": "esbuild",
+  "version": "0.25.12",
+  "files": {
+    "loader.js": "a4764a41a55402cd0aafb358e5688f96581085fb0eee8644e7ae6b4ab659674f",
+    "chat.js": "60729b2097650ec508462afa52da47a8098d99198b6d5f6d564bae042446d34b"
+  }
+}
