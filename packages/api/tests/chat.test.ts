@@ -17,6 +17,7 @@ const ok = (sessionId: string, ...m: string[]) =>
     sessionId,
     reply: `Local placeholder reply: ${m[m.length - 1]}`,
     history: turns(...m),
+    summary: '',
   });
 const json = (r: Response) => r.json() as Promise<any>;
 

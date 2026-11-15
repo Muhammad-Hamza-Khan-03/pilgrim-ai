@@ -13,13 +13,19 @@ app.get('/health', (c) =>
 // - no sessionId => create `session-N` (N = 1,2,... deterministic counter)
 // - known sessionId => append the turn to its history
 // - unknown sessionId => 404 unknown_session (clients cannot mint ids)
-// - history keeps only the newest MAX_HISTORY messages; at most MAX_SESSIONS sessions
+// - history keeps only the newest MAX_HISTORY_TURNS turns (MAX_HISTORY messages); older messages
+//   are folded into a deterministic `summary` (one "role: text" line each, text truncated to
+//   SUMMARY_LINE_CHARS, newest SUMMARY_MAX_CHARS kept) that is sent to the LLM as `summary`.
+// - at most MAX_SESSIONS sessions
 //   (503 session_limit_reached beyond that).
 // shortcut: no expiry/reset endpoint, upgrade when real clients need cleanup.
-export const MAX_HISTORY = 20;
+export const MAX_HISTORY_TURNS = 6;
+export const MAX_HISTORY = MAX_HISTORY_TURNS * 2;
+export const SUMMARY_LINE_CHARS = 120;
+export const SUMMARY_MAX_CHARS = 2000;
 export const MAX_SESSIONS = 100;
 type Turn = { role: 'user' | 'assistant'; content: string };
-const sessions = new Map<string, Turn[]>();
+const sessions = new Map<string, { history: Turn[]; summary: string }>();
 let counter = 0;
 let reserved = 0; // in-flight new-session creations
 const tails = new Map<string, Promise<unknown>>(); // per-session turn queue
@@ -92,18 +98,21 @@ app.post('/chat', async (c) => {
 });
 
 async function runTurn(c: Context, id: string | undefined, userTurn: Turn) {
-  const prior = id === undefined ? [] : sessions.get(id)!;
+  const { history: prior, summary: priorSummary } = id === undefined ? { history: [], summary: '' } : sessions.get(id)!;
   // Call the chain before touching session state so failures leave no trace.
   let reply: string;
   try {
-    reply = (await invokeLlm(llmChain, { messages: [...prior, userTurn] })).text;
+    reply = (await invokeLlm(llmChain, { messages: [...prior, userTurn], ...(priorSummary && { summary: priorSummary }) })).text;
   } catch {
     return c.json(bad('llm_unavailable', 'Language model is unavailable.'), 503);
   }
   id ??= `session-${++counter}`;
-  const history = [...prior, userTurn, { role: 'assistant' as const, content: reply }].slice(-MAX_HISTORY);
-  sessions.set(id, history);
-  return c.json({ contractVersion: 1, sessionId: id, reply, history });
+  const all = [...prior, userTurn, { role: 'assistant' as const, content: reply }];
+  const history = all.slice(-MAX_HISTORY);
+  const lines = all.slice(0, -MAX_HISTORY).map((t) => `${t.role}: ${t.content.replace(/\s+/g, ' ').slice(0, SUMMARY_LINE_CHARS)}`);
+  const summary = [priorSummary, ...lines].filter(Boolean).join('\n').slice(-SUMMARY_MAX_CHARS);
+  sessions.set(id, { history, summary });
+  return c.json({ contractVersion: 1, sessionId: id, reply, history, summary });
 }
 
 export default app;
