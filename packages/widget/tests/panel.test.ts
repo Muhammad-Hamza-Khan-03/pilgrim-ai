@@ -148,4 +148,27 @@ describe('chat panel', () => {
     u.dialog.fire('keydown', { key: 'a' });
     expect(u.closed()).toBe(1);
   });
+
+  it('reopens after Escape/Close via open/toggle, keeping the launcher state in sync', () => {
+    const body = new N('body');
+    const doc: PanelDocument = { createElement: (t) => new N(t), body };
+    const expanded: boolean[] = [];
+    const p = mountPanel(doc, { client: null, onClose: () => expanded.push(false), onOpen: () => expanded.push(true) });
+    const dialog = (p.host as N).shadow!.find((n) => n.attrs.get('role') === 'dialog')[0]!;
+    const input = (p.host as N).shadow!.find((n) => n.tag === 'textarea')[0]!;
+    expect(dialog.hidden).toBe(false);
+    dialog.fire('keydown', { key: 'Escape' });
+    expect(dialog.hidden).toBe(true);
+    input.focused = false;
+    p.toggle(); // launcher click after close
+    expect(dialog.hidden).toBe(false);
+    expect(dialog.attrs.get('aria-hidden')).toBe('false');
+    expect(input.focused).toBe(true);
+    p.toggle(); // click while open closes
+    expect(dialog.hidden).toBe(true);
+    p.open();
+    expect(dialog.hidden).toBe(false);
+    expect(expanded).toEqual([false, true, false, true]);
+    expect(body.kids).toEqual([p.host]); // reused, not remounted
+  });
 });

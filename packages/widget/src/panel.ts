@@ -31,7 +31,7 @@ const ERRORS: Record<string, string> = {
   invalid_response: 'The chat service sent an unreadable reply.',
 };
 
-export function mountPanel(doc: PanelDocument, opts: { client: PanelClient | null; onClose?: () => void }) {
+export function mountPanel(doc: PanelDocument, opts: { client: PanelClient | null; onClose?: () => void; onOpen?: () => void }) {
   const el = (tag: string, attrs: Record<string, string> = {}, text?: string, ...kids: PanelNode[]) => {
     const n = doc.createElement(tag);
     for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
@@ -100,6 +100,12 @@ export function mountPanel(doc: PanelDocument, opts: { client: PanelClient | nul
     setOpen(false);
     opts.onClose?.();
   }
+  function open() {
+    setOpen(true);
+    opts.onOpen?.();
+    input.focus?.();
+  }
+  const toggle = () => (dialog.hidden ? open() : close());
 
   form.addEventListener('submit', (e) => { e.preventDefault(); submit(); });
   input.addEventListener('keydown', (e) => {
@@ -112,5 +118,5 @@ export function mountPanel(doc: PanelDocument, opts: { client: PanelClient | nul
   doc.body?.appendChild(host);
   setOpen(true);
   input.focus?.();
-  return { host, close };
+  return { host, close, open, toggle };
 }

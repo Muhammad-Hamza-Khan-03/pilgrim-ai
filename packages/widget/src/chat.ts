@@ -75,7 +75,7 @@ export function createChatClient(opts: { apiUrl: string; fetch: FetchLike; sessi
 import { mountPanel, type PanelDocument } from './panel.js';
 export { mountPanel };
 interface ScriptLike { getAttribute(n: string): string | null }
-const g = globalThis as { document?: PanelDocument & { currentScript?: ScriptLike | null; querySelector(s: string): { setAttribute(n: string, v: string): void } | null }; fetch?: FetchLike };
+const g = globalThis as { document?: PanelDocument & { currentScript?: ScriptLike | null; querySelector(s: string): { setAttribute(n: string, v: string): void; addEventListener(t: string, l: () => void): void } | null }; fetch?: FetchLike };
 const cur = g.document?.currentScript;
 if (g.document && cur && cur.getAttribute('data-pilgrim-bundle') !== null) {
   const doc = g.document;
@@ -84,5 +84,9 @@ if (g.document && cur && cur.getAttribute('data-pilgrim-bundle') !== null) {
     const api = cur.getAttribute('data-api-url');
     if (api && g.fetch) client = createChatClient({ apiUrl: api, fetch: g.fetch.bind(globalThis) as FetchLike });
   } catch { /* invalid config: panel shows a typed error on submit */ }
-  mountPanel(doc, { client, onClose: () => doc.querySelector('[data-pilgrim-launcher]')?.setAttribute('aria-expanded', 'false') });
+  const launcher = doc.querySelector('[data-pilgrim-launcher]');
+  const expanded = (v: boolean) => launcher?.setAttribute('aria-expanded', String(v));
+  const panel = mountPanel(doc, { client, onClose: () => expanded(false), onOpen: () => expanded(true) });
+  // The loader ignores clicks once this bundle exists, so the bundle owns reopen/toggle.
+  launcher?.addEventListener('click', panel.toggle);
 }
