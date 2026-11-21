@@ -31,3 +31,6 @@ Zip the `wp-plugin/pilgrim-ai/` folder and upload via Plugins → Add New → Up
 - [ ] View page source on a front-end page: exactly one `<script … data-tenant …>`; none when a required field is blank; none in wp-admin.
 - [ ] Network tab: only the loader loads initially; the chat bundle requests only after tapping the launcher.
 - [ ] On a real phone (LAN URL to the LocalWP site): launcher visible, tappable, no layout overlap.
+
+## Local host fixture (Phase 2, static)
+`wp-plugin/fixtures/host.html` is a static page showing the loader tag with the optional host attributes (`data-site-id`, `data-version`, `data-allowed-origins`). It needs no WordPress and no network; the PHP plugin does not emit these attributes yet. Behavior is covered by `pnpm --filter @pilgrim/widget test` (no built widget artifact is committed; there is no build script).
