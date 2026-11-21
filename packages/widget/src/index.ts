@@ -1,3 +1,6 @@
+import { parseHostConfig } from './host.js';
+export * from './host.js';
+
 // Minimal structural DOM types: the loader needs no DOM lib and tests use a fake.
 export interface WidgetElement {
   setAttribute(name: string, value: string): void;
@@ -35,6 +38,10 @@ export function initWidget(doc: WidgetDocument, script: WidgetElement | null): W
     const apiUrl = rawApi === null ? null : httpUrl(rawApi);
     if (!/^[A-Za-z0-9_-]+$/.test(tenant) || !bundleUrl || (rawApi !== null && !apiUrl)) return null;
 
+    // Optional host config: when any is present, all must validate together (fail closed).
+    const host = (['site-id', 'version', 'allowed-origins'] as const).map((n) => script.getAttribute(`data-${n}`));
+    if (host.some((v) => v !== null) && !parseHostConfig({ tenant, siteId: host[0], apiUrl: rawApi, version: host[1], allowedOrigins: host[2] })) return null;
+
     const existing = doc.querySelector(LAUNCHER_SELECTOR);
     if (existing) return existing;
 
@@ -53,6 +60,7 @@ export function initWidget(doc: WidgetDocument, script: WidgetElement | null): W
         bundle.setAttribute('data-pilgrim-bundle', '');
         bundle.setAttribute('data-tenant', tenant);
         if (apiUrl) bundle.setAttribute('data-api-url', apiUrl);
+        (['site-id', 'version', 'allowed-origins'] as const).forEach((n, i) => host[i] !== null && bundle.setAttribute(`data-${n}`, host[i]!));
         doc.body?.appendChild(bundle);
         button.setAttribute('aria-expanded', 'true');
       } catch {
