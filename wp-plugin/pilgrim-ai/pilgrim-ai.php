@@ -42,8 +42,10 @@ function pilgrim_ai_sanitize( $input ): array {
 		'tenant'     => pilgrim_ai_clean_tenant( $input['tenant'] ?? '' ),
 		'api_url'    => pilgrim_ai_clean_url( $input['api_url'] ?? '' ),
 		'bundle_url' => pilgrim_ai_clean_url( $input['bundle_url'] ?? '' ),
+		'local_assets' => '1' === ( $input['local_assets'] ?? '' ) ? '1' : '0',
 	);
-	foreach ( array( 'loader_url', 'tenant', 'bundle_url' ) as $required ) {
+	// With local assets the URLs come from the plugin, so only tenant is required.
+	foreach ( '1' === $out['local_assets'] ? array( 'tenant' ) : array( 'loader_url', 'tenant', 'bundle_url' ) as $required ) {
 		if ( '' === $out[ $required ] ) {
 			add_settings_error( PILGRIM_AI_OPTION, 'pilgrim_ai_' . $required, sprintf( 'Pilgrim AI: "%s" is missing or invalid; the widget is disabled.', $required ) );
 		}
@@ -71,12 +73,26 @@ function pilgrim_ai_script_tag( $settings ): string {
 	return '<script' . $attrs . '></script>' . "\n";
 }
 
+/** Opt-in: swap loader/bundle URLs for the plugin's bundled assets. Missing files => '' URLs => nothing emitted. */
+function pilgrim_ai_local_settings( $settings, string $dir, string $url ): array {
+	$s = is_array( $settings ) ? $settings : array();
+	if ( '1' !== ( $s['local_assets'] ?? '' ) ) {
+		return $s;
+	}
+	$ok = is_readable( $dir . 'loader.js' ) && is_readable( $dir . 'chat.js' );
+	$s['loader_url'] = $ok ? $url . 'loader.js' : '';
+	$s['bundle_url'] = $ok ? $url . 'chat.js' : '';
+	return $s;
+}
+
 function pilgrim_ai_print_script(): void {
 	static $printed = false; // duplicate prevention
 	if ( $printed || is_admin() || is_feed() ) {
 		return;
 	}
-	$tag = pilgrim_ai_script_tag( get_option( PILGRIM_AI_OPTION, array() ) );
+	$tag = pilgrim_ai_script_tag(
+		pilgrim_ai_local_settings( get_option( PILGRIM_AI_OPTION, array() ), plugin_dir_path( __FILE__ ) . 'assets/', plugins_url( 'assets/', __FILE__ ) )
+	);
 	if ( '' === $tag ) {
 		return;
 	}
@@ -131,6 +147,11 @@ function pilgrim_ai_render_page(): void {
 			esc_attr( (string) ( $o[ $key ] ?? '' ) )
 		);
 	}
+	printf(
+		'<tr><th scope="row"><label for="pilgrim-ai-local_assets">Use bundled local assets</label></th><td><input type="checkbox" id="pilgrim-ai-local_assets" name="%1$s[local_assets]" value="1" %2$s /> Ignore the Loader/Bundle URLs and serve loader.js and chat.js from this plugin.</td></tr>',
+		esc_attr( PILGRIM_AI_OPTION ),
+		checked( '1', (string) ( $o['local_assets'] ?? '' ), false )
+	);
 	echo '</table>';
 	submit_button();
 	echo '</form></div>';

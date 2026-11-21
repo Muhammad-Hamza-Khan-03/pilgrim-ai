@@ -57,6 +57,17 @@ assert.equal(url('https://cdn.example.com/loader.js'), 'https://cdn.example.com/
 for (const bad of ['a b', 'a"><script>', '', 'a/b']) assert.equal(tenant(bad), '', `rejects tenant ${bad}`);
 assert.equal(tenant('acme_1-x'), 'acme_1-x');
 
+// 5b. Local bundled assets: explicit opt-in, files must exist, committed artifacts match metadata
+import { createHash } from 'node:crypto';
+has(/function pilgrim_ai_local_settings\(/, 'local assets helper');
+has(/'1' !== \( \$s\['local_assets'\] \?\? '' \)/, 'local assets is explicit opt-in');
+has(/is_readable\( \$dir \. 'loader\.js' \) && is_readable\( \$dir \. 'chat\.js' \)/, 'missing local files fail closed');
+has(/'local_assets' => '1' === /, 'local_assets sanitized to 0/1 flag');
+const assets = new URL('assets/', dir);
+const meta = JSON.parse(readFileSync(new URL('build-meta.json', assets), 'utf8'));
+for (const [f, h] of Object.entries(meta.files))
+  assert.equal(createHash('sha256').update(readFileSync(new URL(f, assets))).digest('hex'), h, `${f} matches build-meta`);
+
 // 6. Optional real syntax check when php exists
 try { execFileSync('php', ['-l', new URL('pilgrim-ai.php', dir).pathname], { stdio: 'pipe' }); console.log('php -l: ok'); }
 catch (e) { console.log(e.code === 'ENOENT' ? 'php -l: SKIPPED (php not installed)' : (() => { throw e; })()); }

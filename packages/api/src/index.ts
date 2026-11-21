@@ -5,6 +5,35 @@ export * from './llm.js';
 
 export const app = new Hono();
 
+// Local-only explicit origin policy. An empty allowlist is fail-closed; configure it
+// from the embedding runtime (for example: PILGRIM_ALLOWED_ORIGINS=http://localhost:8080).
+let allowedOrigins = new Set<string>();
+export const setAllowedOrigins = (origins: string[]) => {
+  allowedOrigins = new Set(origins.filter((origin) => /^https?:\/\/[^/]+$/.test(origin)));
+};
+const configured = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.PILGRIM_ALLOWED_ORIGINS;
+setAllowedOrigins(configured ? configured.split(',').map((x) => x.trim()) : ['http://localhost:8080']);
+
+app.use('/chat', async (c, next) => {
+  const origin = c.req.header('Origin');
+  const allowed = origin !== undefined && allowedOrigins.has(origin);
+  if (c.req.method === 'OPTIONS') {
+    if (!allowed) return c.json(bad('cors_origin_denied', 'Origin is not allowed.'), 403);
+    return new Response(null, { status: 204, headers: {
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'content-type',
+      Vary: 'Origin',
+    } });
+  }
+  if (origin !== undefined && !allowed) return c.json(bad('cors_origin_denied', 'Origin is not allowed.'), 403);
+  await next();
+  if (allowed) {
+    c.header('Access-Control-Allow-Origin', origin);
+    c.header('Vary', 'Origin');
+  }
+});
+
 app.get('/health', (c) =>
   c.json({ status: 'ok', service: 'pilgrim-api', contractVersion: 1 }),
 );
@@ -82,18 +111,19 @@ app.post('/chat', async (c) => {
       reserved--;
     }
   }
-  if (!sessions.has(sessionId)) {
+  const existingId = sessionId as string;
+  if (!sessions.has(existingId)) {
     return c.json(bad('unknown_session', 'sessionId does not match an existing session.'), 404);
   }
   // Serialize turns per session: wait for the previous turn, then read history fresh.
-  const prev = tails.get(sessionId) ?? Promise.resolve();
-  const run = prev.then(() => runTurn(c, sessionId, userTurn));
+  const prev = tails.get(existingId) ?? Promise.resolve();
+  const run = prev.then(() => runTurn(c, existingId, userTurn));
   const tail = run.catch(() => undefined);
-  tails.set(sessionId, tail);
+  tails.set(existingId, tail);
   try {
     return await run;
   } finally {
-    if (tails.get(sessionId) === tail) tails.delete(sessionId);
+    if (tails.get(existingId) === tail) tails.delete(existingId);
   }
 });
 
