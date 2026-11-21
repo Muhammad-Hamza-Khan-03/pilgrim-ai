@@ -41,6 +41,22 @@ importers:
         specifier: ^4.1.12
         version: 4.1.12(@types/node@22.20.5)(vite@6.4.5(@types/node@22.20.5)(yaml@2.9.1))
 
+  packages/control-plane:
+    dependencies:
+      '@pilgrim/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@pilgrim/ingest':
+        specifier: workspace:*
+        version: link:../ingest
+      '@pilgrim/widget':
+        specifier: workspace:*
+        version: link:../widget
+    devDependencies:
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@types/node@22.20.5)(vite@6.4.5(@types/node@22.20.5)(yaml@2.9.1))
+
   packages/engine:
     dependencies:
       yaml:
