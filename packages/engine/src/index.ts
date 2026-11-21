@@ -10,3 +10,5 @@ export { DEFAULT_WEIGHTS, PreferenceError, applyPreferenceDelta, normalizePrefer
 export type { PreferenceConstraints, PreferenceDelta, PreferenceDirection, PreferenceDirections, PreferenceState, PreferenceWeights } from './preferences.js';
 export { selectFollowUp } from './follow-up.js';
 export type { FollowUpChoice, FollowUpRequest } from './follow-up.js';
+export { GROUNDED_TURN_SCHEMA_VERSION, runGroundedTurn } from './grounded-turn.js';
+export type { AnswerComposer, Citation, ComposeInput, EvidenceItem, EvidenceRetriever, GroundedCard, GroundedClaim, GroundedDiagnosticCode, GroundedRecommendation, GroundedTurnRequest, GroundedTurnResult, GroundedTurnStatus, IntentExtractor, IntentSlots } from './grounded-turn.js';
