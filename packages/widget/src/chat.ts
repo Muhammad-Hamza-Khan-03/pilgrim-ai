@@ -8,7 +8,7 @@ export type FetchLike = (
   init: { method: 'POST'; headers: Record<string, string>; body: string },
 ) => Promise<FetchResponseLike>;
 
-export type ChatErrorCode = 'invalid_config' | 'invalid_message' | 'network_error' | 'http_error' | 'invalid_response';
+export type ChatErrorCode = 'invalid_config' | 'invalid_message' | 'network_error' | 'http_error' | 'invalid_response' | 'malformed_stream' | 'timeout' | 'aborted';
 export class ChatClientError extends Error {
   constructor(readonly code: ChatErrorCode, message: string, readonly status?: number) {
     super(message);
@@ -68,4 +68,25 @@ export function createChatClient(opts: { apiUrl: string; fetch: FetchLike; sessi
       return parsed;
     },
   };
+}
+
+// Browser auto-run: the loader injects this script on launcher activation; mount the panel then.
+// The page's fetch is injected here at the edge; the panel itself never touches globals.
+import { mountPanel, type PanelDocument } from './panel.js';
+export { mountPanel };
+interface ScriptLike { getAttribute(n: string): string | null }
+const g = globalThis as { document?: PanelDocument & { currentScript?: ScriptLike | null; querySelector(s: string): { setAttribute(n: string, v: string): void; addEventListener(t: string, l: () => void): void } | null }; fetch?: FetchLike };
+const cur = g.document?.currentScript;
+if (g.document && cur && cur.getAttribute('data-pilgrim-bundle') !== null) {
+  const doc = g.document;
+  let client: ReturnType<typeof createChatClient> | null = null;
+  try {
+    const api = cur.getAttribute('data-api-url');
+    if (api && g.fetch) client = createChatClient({ apiUrl: api, fetch: g.fetch.bind(globalThis) as FetchLike });
+  } catch { /* invalid config: panel shows a typed error on submit */ }
+  const launcher = doc.querySelector('[data-pilgrim-launcher]');
+  const expanded = (v: boolean) => launcher?.setAttribute('aria-expanded', String(v));
+  const panel = mountPanel(doc, { client, onClose: () => expanded(false), onOpen: () => expanded(true) });
+  // The loader ignores clicks once this bundle exists, so the bundle owns reopen/toggle.
+  launcher?.addEventListener('click', panel.toggle);
 }

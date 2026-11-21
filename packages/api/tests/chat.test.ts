@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { MAX_HISTORY, MAX_SESSIONS, app, resetSessions, setLlmChain } from '../src/index.js';
+import { MAX_HISTORY, MAX_SESSIONS, app, resetSessions, setAllowedOrigins, setLlmChain } from '../src/index.js';
 
 beforeEach(resetSessions);
+beforeEach(() => setAllowedOrigins(['http://localhost:8080']));
 
 const post = (body: string) =>
   app.request('/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body });
@@ -144,6 +145,31 @@ describe('one turn at a time per session', () => {
 });
 
 describe('/chat routing', () => {
+  it('serves preflight only for an explicitly allowed origin', async () => {
+    const res = await app.request('/chat', { method: 'OPTIONS', headers: { Origin: 'http://localhost:8080', 'Access-Control-Request-Method': 'POST' } });
+    expect(res.status).toBe(204);
+    expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:8080');
+    expect(res.headers.get('access-control-allow-methods')).toBe('POST, OPTIONS');
+  });
+
+  it('fails closed for disallowed preflight and POST origins', async () => {
+    const preflight = await app.request('/chat', { method: 'OPTIONS', headers: { Origin: 'https://evil.example' } });
+    expect(preflight.status).toBe(403);
+    expect(preflight.headers.get('access-control-allow-origin')).toBeNull();
+    const post = await app.request('/chat', { method: 'POST', headers: { Origin: 'https://evil.example', 'content-type': 'application/json' }, body: '{"message":"x"}' });
+    expect(post.status).toBe(403);
+    expect(post.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
+  it('adds ACAO only to allowed POST responses and preserves the panel schema', async () => {
+    const res = await post('{"message":"hello"}');
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
+    const allowed = await app.request('/chat', { method: 'POST', headers: { Origin: 'http://localhost:8080', 'content-type': 'application/json' }, body: '{"message":"hello"}' });
+    expect(allowed.status).toBe(200);
+    expect(allowed.headers.get('access-control-allow-origin')).toBe('http://localhost:8080');
+    expect(await allowed.json()).toMatchObject({ contractVersion: 1, sessionId: expect.any(String), reply: expect.any(String), history: expect.any(Array), summary: expect.any(String) });
+  });
+
   it.each(['GET', 'PUT', 'PATCH', 'DELETE'])('%s returns 404', async (method) => {
     expect((await app.request('/chat', { method })).status).toBe(404);
   });
