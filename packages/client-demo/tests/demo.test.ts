@@ -35,6 +35,48 @@ describe('visitor flow', () => {
     expect(await get(q)).toEqual(await get(q));
   });
 
+  it.each([['Jeddah', 'jeddah'], ['Atlantis', 'unknown']])('does not silently map an unsupported city to Makkah (%s)', async (city, expectedCity) => {
+    const t = await runDemoTurn(`Hotels in ${city} for 2 people, 3 nights`);
+    expect(t.result.status).toBe('insufficient_evidence');
+    expect(t.result.slots.city).toBe(expectedCity);
+    expect(t.result.claims).toEqual([]);
+    expect(t.result.cards).toEqual([]);
+    expect(t.result.recommendations).toEqual([]);
+    expect(JSON.stringify(t)).not.toContain('Makkah');
+  });
+
+  it('enforces a sub-300 SAR budget without showing over-budget options', async () => {
+    const t = await runDemoTurn('Hotels in Makkah for 2 people, 3 nights under 300 SAR');
+    expect(t.result.status).toBe('grounded');
+    expect(t.result.slots.budget).toBe(300);
+    expect(t.result.claims.length).toBeGreaterThan(0);
+    for (const claim of t.result.claims) {
+      const total = Number(claim.text.match(/(\d+) total/)?.[1]);
+      expect(total).toBeLessThanOrEqual(300);
+    }
+    expect(t.result.recommendations.length).toBeGreaterThan(0);
+  });
+
+  it.each([1, 3, 5, 7])('has a deterministic grounded fixture outcome for %s travelers', async (travelers) => {
+    const t = await runDemoTurn(`Hotels in Madinah for ${travelers} people, 2 nights`);
+    expect(t.result.status).toBe('grounded');
+    expect(t.result.cards.length).toBeGreaterThan(0);
+    expect(t.result.recommendations.length).toBeGreaterThan(0);
+    for (const claim of t.result.claims) for (const citation of claim.citations) expect(t.evidence[citation.evidence_id]).toBeDefined();
+  });
+
+  it('preserves Madinah context for a cheaper follow-up and keeps grounded cards/citations', async () => {
+    const first = await runDemoTurn('Hotels in Madinah for 2 people, 4 nights');
+    expect(first.result.status).toBe('grounded');
+    const next = await runDemoTurn('Can you find a cheaper option?', { context: first.context });
+    expect(next.result.status).toBe('grounded');
+    expect(next.result.slots.city).toBe('madinah');
+    expect(next.result.slots.priority).toBe('total_price');
+    expect(next.result.cards.length).toBeGreaterThan(0);
+    expect(next.result.claims.every((claim) => claim.citations.length > 0)).toBe(true);
+    expect(next.result.recommendations.every((rec) => rec.citations.length > 0)).toBe(true);
+  });
+
   it('insufficient evidence says so, no claims or recommendations', async () => {
     const t = await runDemoTurn('Do you fly to Mars?');
     expect(t.result.status).toBe('insufficient_evidence');
