@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@pilgrim/engine": "workspace:*",
     "hono": "^4.6.14"
   },
   "devDependencies": {

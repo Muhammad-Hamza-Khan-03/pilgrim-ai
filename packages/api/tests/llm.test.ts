@@ -19,8 +19,8 @@ const j = async (p: Response | Promise<Response>) => (await p).json() as Promise
 
 describe('llm boundary', () => {
   it('mock is deterministic and trims', async () => {
-    expect(await localMockLlm({ messages: [u('a'), { role: 'assistant', content: 'x' }, u('  hi  ')] })).toEqual({
-      text: 'Local placeholder reply: hi',
+    expect(await localMockLlm({ messages: [u('a'), { role: 'assistant', content: 'x' }, u('  hi  ')] })).toMatchObject({
+      text: 'I do not have enough verified fixture evidence to answer that.', grounded: { status: 'insufficient_evidence' },
     });
   });
 
@@ -89,6 +89,6 @@ describe('POST /chat with chain', () => {
   it('resetSessions restores the default mock', async () => {
     setLlmChain(() => ({ text: 'custom' }));
     resetSessions();
-    expect((await j(post({ message: 'hi' }))).reply).toBe('Local placeholder reply: hi');
+    expect((await j(post({ message: 'hi' }))).status).toBe('insufficient_evidence');
   });
 });

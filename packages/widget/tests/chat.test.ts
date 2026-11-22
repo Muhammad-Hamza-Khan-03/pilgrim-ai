@@ -5,6 +5,12 @@ const ok = (body: unknown, status = 200) => ({ ok: status < 400, status, json: a
 const good = (sessionId = 'session-1', reply = 'hi') => ({
   contractVersion: 1, sessionId, reply, history: [{ role: 'user', content: 'a' }, { role: 'assistant', content: reply }], summary: '',
 });
+const grounded = {
+  schema_version: 'grounded-turn/v1', status: 'grounded',
+  claims: [{ id: 'c1', text: 'Zamzam Court is 150 m away.', citations: [{ evidence_id: 'hotel-1', source: 'Demo hotel list (fixture)' }] }],
+  cards: [{ id: 'card1', kind: 'hotel', title: 'Zamzam Court', citations: [{ evidence_id: 'hotel-1', source: 'Demo hotel list (fixture)' }] }],
+  recommendations: [{ id: 'rec1', advisory: true, rank: 1, title: 'Zamzam Court', rationale: 'Balanced pick: 150 m away.', citations: [{ evidence_id: 'hotel-1', source: 'Demo hotel list (fixture)' }] }],
+};
 function mk(responses: unknown[]) {
   const calls: Array<{ url: string; init: { method: string; headers: Record<string, string>; body: string } }> = [];
   const fetch: FetchLike = async (url, init) => {
@@ -28,6 +34,14 @@ describe('chat client', () => {
     expect(client.sessionId).toBe('session-1');
     await client.send('more');
     expect(JSON.parse(calls[1]!.init.body)).toEqual({ message: 'more', sessionId: 'session-1' });
+  });
+
+  it('accepts the optional structured grounded response and follow-ups', async () => {
+    const body = { ...good(), groundedTurn: grounded, followUps: [{ label: 'Cheaper', message: 'cheaper' }], status: 'grounded' };
+    const { client } = mk([ok(body)]);
+    const r = await client.send('hello');
+    expect(r.groundedTurn?.cards[0]?.title).toBe('Zamzam Court');
+    expect(r.followUps?.[0]?.message).toBe('cheaper');
   });
 
   it('can resume from an initial sessionId', async () => {

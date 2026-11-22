@@ -49,6 +49,12 @@ function setup(client: PanelClient | null) {
   };
 }
 const reply = (r: string) => ({ contractVersion: 1 as const, sessionId: 's', reply: r, history: [], summary: '' });
+const structuredReply = () => ({ ...reply('fixture-backed guidance'), groundedTurn: {
+  schema_version: 'grounded-turn/v1' as const, status: 'grounded' as const,
+  claims: [{ id: 'c', text: 'Zamzam Court is 150 m away.', citations: [{ evidence_id: 'e', source: 'Demo fixture' }] }],
+  cards: [{ id: 'card', kind: 'hotel', title: 'Zamzam Court', citations: [{ evidence_id: 'e', source: 'Demo fixture' }] }],
+  recommendations: [{ id: 'rec', advisory: true as const, rank: 1, title: 'Zamzam Court', rationale: 'Balanced pick.', citations: [{ evidence_id: 'e', source: 'Demo fixture' }] }],
+}, followUps: [{ label: 'Cheaper', message: 'cheaper' }], status: 'grounded' as const });
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 describe('chat panel', () => {
@@ -100,6 +106,18 @@ describe('chat panel', () => {
     t.form.fire('submit');
     await tick();
     expect(sent).toEqual(['hello']);
+  });
+
+  it('renders structured claims, citations, recommendation cards and follow-ups as text-only DOM', async () => {
+    const t = setup({ send: async () => structuredReply() });
+    t.input.value = 'hotels';
+    t.form.fire('submit');
+    await tick();
+    expect(t.root.find((n) => n.textContent === 'Zamzam Court').length).toBeGreaterThan(0);
+    expect(t.root.find((n) => n.textContent === 'Demo fixture').length).toBeGreaterThan(0);
+    expect(t.root.find((n) => n.textContent === 'Cheaper').length).toBeGreaterThan(0);
+    expect(t.root.find((n) => n.attrs.get('data-role') === 'assistant').length).toBe(1);
+    expect(t.root.find((n) => n.tag === 'img' || n.tag === 'b').length).toBe(0);
   });
 
   it('surfaces typed errors without throwing and retries without duplicating the user turn', async () => {

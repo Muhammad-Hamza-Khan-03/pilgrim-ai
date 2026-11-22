@@ -1,6 +1,6 @@
 // Chat panel seam: isolated (Shadow DOM) accessible dialog over an injected chat client.
 // Structural DOM types keep the bundle DOM-lib free; tests use a fake. No network, storage or globals here.
-import { ChatClientError, type ChatResponse } from './chat.js';
+import { ChatClientError, type ChatResponse, type GroundedTurnView, type ViewCitation } from './chat.js';
 
 export interface PanelEvent { key?: string; shiftKey?: boolean; isComposing?: boolean; preventDefault(): void }
 export interface PanelNode {
@@ -68,6 +68,21 @@ export function mountPanel(doc: PanelDocument, opts: { client: PanelClient | nul
     log.appendChild(m);
     return m;
   };
+  const renderStructured = (parent: PanelNode, g: GroundedTurnView, followUps: ChatResponse['followUps']) => {
+    const cite = (p: PanelNode, c: ViewCitation) => p.appendChild(el('span', { 'data-citation': c.evidence_id }, c.source));
+    const sources = (p: PanelNode, cs: ViewCitation[]) => cs.forEach((c) => cite(p, c));
+    for (const c of g.claims) { const claim = el('p', { 'data-grounded-claim': c.id }, c.text); sources(claim, c.citations); parent.appendChild(claim); }
+    for (const c of g.cards) { const card = el('article', { 'data-card-kind': c.kind }, undefined, el('h3', {}, c.title)); sources(card, c.citations); parent.appendChild(card); }
+    for (const r of [...g.recommendations].sort((a, b) => a.rank - b.rank)) {
+      const card = el('article', { 'data-recommendation': r.id }, undefined, el('h3', {}, r.title), el('p', {}, r.rationale));
+      sources(card, r.citations); parent.appendChild(card);
+    }
+    for (const f of followUps ?? []) {
+      const btn = el('button', { type: 'button', 'data-follow-up': f.message }, f.label);
+      btn.addEventListener('click', () => { input.value = f.message; submit(); });
+      parent.appendChild(btn);
+    }
+  };
   const setBusy = (b: boolean) => {
     busy = b;
     sendBtn.disabled = retryBtn.disabled = b;
@@ -96,7 +111,8 @@ export function mountPanel(doc: PanelDocument, opts: { client: PanelClient | nul
       const r = opts.client ? await opts.client.send(text) : null;
       if (!r) throw new ChatClientError('invalid_config', 'no client');
       if (typeof r.reply !== 'string') throw new ChatClientError('invalid_response', 'bad reply');
-      addMessage('assistant', r.reply);
+      const assistant = addMessage('assistant', r.reply);
+      if (r.groundedTurn) renderStructured(assistant, r.groundedTurn, r.followUps);
     } catch (e) {
       if (e instanceof ChatClientError && e.code === 'aborted') { live = null; setBusy(false); return; } // closed by the user: no error UI
       failed = text;
