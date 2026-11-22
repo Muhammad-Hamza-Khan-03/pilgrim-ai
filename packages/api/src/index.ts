@@ -130,19 +130,22 @@ app.post('/chat', async (c) => {
 async function runTurn(c: Context, id: string | undefined, userTurn: Turn) {
   const { history: prior, summary: priorSummary } = id === undefined ? { history: [], summary: '' } : sessions.get(id)!;
   // Call the chain before touching session state so failures leave no trace.
-  let reply: string;
+  let response: Awaited<ReturnType<typeof invokeLlm>>;
   try {
-    reply = (await invokeLlm(llmChain, maskLlmRequest({ messages: [...prior, userTurn], ...(priorSummary && { summary: priorSummary }) }))).text;
+    response = await invokeLlm(llmChain, maskLlmRequest({ messages: [...prior, userTurn], ...(priorSummary && { summary: priorSummary }) }));
   } catch {
     return c.json(bad('llm_unavailable', 'Language model is unavailable.'), 503);
   }
   id ??= `session-${++counter}`;
+  const reply = response.text;
   const all = [...prior, userTurn, { role: 'assistant' as const, content: reply }];
   const history = all.slice(-MAX_HISTORY);
   const lines = all.slice(0, -MAX_HISTORY).map((t) => `${t.role}: ${t.content.replace(/\s+/g, ' ').slice(0, SUMMARY_LINE_CHARS)}`);
   const summary = [priorSummary, ...lines].filter(Boolean).join('\n').slice(-SUMMARY_MAX_CHARS);
   sessions.set(id, { history, summary });
-  return c.json({ contractVersion: 1, sessionId: id, reply, history, summary });
+  return c.json({ contractVersion: 1, sessionId: id, reply, history, summary,
+    ...(response.grounded ? { groundedTurn: response.grounded.groundedTurn, followUps: response.grounded.followUps, status: response.grounded.status } : {}),
+  });
 }
 
 export default app;

@@ -3,7 +3,8 @@ export const LLM_MAX_CONTENT_CHARS = 8000;
 
 export type LlmMessage = { readonly role: 'user' | 'assistant'; readonly content: string };
 export type LlmRequest = { readonly messages: readonly LlmMessage[]; readonly summary?: string };
-export type LlmResponse = { readonly text: string };
+import { runLocalGroundedTurn, type LocalGroundedResponse } from './grounded.js';
+export type LlmResponse = { readonly text: string; readonly grounded?: LocalGroundedResponse };
 export type LlmChain = (request: LlmRequest) => LlmResponse | Promise<LlmResponse>;
 
 export type LlmErrorCode = 'invalid_request' | 'llm_unavailable';
@@ -39,9 +40,10 @@ export function validateLlmRequest(request: unknown): asserts request is LlmRequ
 }
 
 /** Deterministic local mock: no network, no provider. */
-export const localMockLlm: LlmChain = ({ messages }) => {
+export const localMockLlm: LlmChain = async ({ messages }) => {
   validateLlmRequest({ messages });
-  return { text: `Local placeholder reply: ${messages[messages.length - 1].content.trim()}` };
+  const grounded = await runLocalGroundedTurn(messages[messages.length - 1].content.trim());
+  return { text: grounded.reply, grounded };
 };
 
 /** Validates the request, calls the chain, validates the response; any failure is an LlmError. */
@@ -57,7 +59,7 @@ export async function invokeLlm(chain: LlmChain, request: LlmRequest): Promise<L
   if (!isObj(res) || typeof res.text !== 'string' || res.text.length > LLM_MAX_CONTENT_CHARS) {
     throw new LlmError('llm_unavailable', 'Language model is unavailable.');
   }
-  return { text: res.text };
+  return { text: res.text, ...('grounded' in res && res.grounded ? { grounded: res.grounded as LocalGroundedResponse } : {}) };
 }
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63})+/g;

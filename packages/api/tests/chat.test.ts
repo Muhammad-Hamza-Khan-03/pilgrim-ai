@@ -10,13 +10,13 @@ const post = (body: string) =>
 const turns = (...m: string[]) =>
   m.flatMap((x) => [
     { role: 'user', content: x },
-    { role: 'assistant', content: `Local placeholder reply: ${x}` },
+    { role: 'assistant', content: 'I do not have enough verified fixture evidence to answer that.' },
   ]);
 const ok = (sessionId: string, ...m: string[]) =>
   JSON.stringify({
     contractVersion: 1,
     sessionId,
-    reply: `Local placeholder reply: ${m[m.length - 1]}`,
+    reply: 'I do not have enough verified fixture evidence to answer that.',
     history: turns(...m),
     summary: '',
   });
@@ -27,7 +27,7 @@ describe('POST /chat sessions', () => {
     const res = await post('{"message":"Salam"}');
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('application/json');
-    expect(await res.text()).toBe(ok('session-1', 'Salam'));
+    expect(await res.json()).toMatchObject({ ...JSON.parse(ok('session-1', 'Salam')), groundedTurn: { status: 'insufficient_evidence' }, status: 'insufficient_evidence' });
     expect((await json(await post('{"message":"  Hi  "}'))).sessionId).toBe('session-2');
   });
 
@@ -35,7 +35,7 @@ describe('POST /chat sessions', () => {
     await post('{"message":"a"}');
     const res = await post('{"sessionId":"session-1","message":" b "}');
     expect(res.status).toBe(200);
-    expect(await res.text()).toBe(ok('session-1', 'a', 'b'));
+    expect(await res.json()).toMatchObject({ ...JSON.parse(ok('session-1', 'a', 'b')), groundedTurn: { status: 'insufficient_evidence' }, status: 'insufficient_evidence' });
   });
 
   it('keeps sessions isolated', async () => {
@@ -60,7 +60,7 @@ describe('POST /chat sessions', () => {
     }
     expect(last.history).toHaveLength(MAX_HISTORY);
     expect(last.history[0].content).toBe(`m${MAX_HISTORY / 2 + 1}`);
-    expect(last.history.at(-1).content).toBe(`Local placeholder reply: m${MAX_HISTORY}`);
+    expect(last.history.at(-1).content).toBe('I do not have enough verified fixture evidence to answer that.');
   });
 
   it('caps the number of sessions, existing ones keep working', async () => {
@@ -116,7 +116,7 @@ describe('one turn at a time per session', () => {
     const [r1, r2] = await Promise.all([send('b'), send('c')]);
     expect((await json(r1)).history.length).toBe(4);
     expect((await json(r2)).history.map((t: any) => t.content)).toEqual([
-      'a', 'Local placeholder reply: a', 'b', 'R3', 'c', 'R5',
+      'a', 'I do not have enough verified fixture evidence to answer that.', 'b', 'R3', 'c', 'R5',
     ]);
   });
 
@@ -167,7 +167,7 @@ describe('/chat routing', () => {
     const allowed = await app.request('/chat', { method: 'POST', headers: { Origin: 'http://localhost:8080', 'content-type': 'application/json' }, body: '{"message":"hello"}' });
     expect(allowed.status).toBe(200);
     expect(allowed.headers.get('access-control-allow-origin')).toBe('http://localhost:8080');
-    expect(await allowed.json()).toMatchObject({ contractVersion: 1, sessionId: expect.any(String), reply: expect.any(String), history: expect.any(Array), summary: expect.any(String) });
+    expect(await allowed.json()).toMatchObject({ contractVersion: 1, sessionId: expect.any(String), reply: expect.any(String), history: expect.any(Array), summary: expect.any(String), groundedTurn: { schema_version: 'grounded-turn/v1' }, followUps: expect.any(Array), status: 'insufficient_evidence' });
   });
 
   it.each(['GET', 'PUT', 'PATCH', 'DELETE'])('%s returns 404', async (method) => {

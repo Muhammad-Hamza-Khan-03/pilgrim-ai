@@ -1,7 +1,15 @@
 // Chat bundle seam: provider-neutral client for the API's POST /chat JSON contract (contractVersion 1).
 // Fetch is injected; nothing here touches globals or the network on its own.
 export interface ChatTurn { role: 'user' | 'assistant'; content: string }
-export interface ChatResponse { contractVersion: 1; sessionId: string; reply: string; history: ChatTurn[]; summary: string }
+export interface ViewCitation { evidence_id: string; source: string }
+export interface GroundedTurnView {
+  schema_version: 'grounded-turn/v1'; status: 'grounded' | 'insufficient_evidence' | 'degraded';
+  claims: Array<{ id: string; text: string; citations: ViewCitation[] }>;
+  cards: Array<{ id: string; kind: string; title: string; citations: ViewCitation[] }>;
+  recommendations: Array<{ id: string; advisory: true; rank: number; title: string; rationale: string; citations: ViewCitation[] }>;
+}
+export interface FollowUp { label: string; message: string }
+export interface ChatResponse { contractVersion: 1; sessionId: string; reply: string; history: ChatTurn[]; summary: string; groundedTurn?: GroundedTurnView; followUps?: FollowUp[]; status?: GroundedTurnView['status'] }
 export interface FetchResponseLike { ok: boolean; status: number; json(): Promise<unknown> }
 export type FetchLike = (
   url: string,
@@ -17,6 +25,13 @@ export class ChatClientError extends Error {
 }
 
 const isStr = (v: unknown): v is string => typeof v === 'string';
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const citations = (v: unknown): v is ViewCitation[] => Array.isArray(v) && v.every((c) => isObj(c) && isStr(c.evidence_id) && isStr(c.source));
+const grounded = (v: unknown): v is GroundedTurnView => {
+  if (!isObj(v) || v.schema_version !== 'grounded-turn/v1' || !['grounded', 'insufficient_evidence', 'degraded'].includes(String(v.status))) return false;
+  const list = (x: unknown, fields: (r: Record<string, unknown>) => boolean) => Array.isArray(x) && x.every((i) => isObj(i) && isStr(i.id) && citations(i.citations) && fields(i));
+  return list(v.claims, (r) => isStr(r.text)) && list(v.cards, (r) => isStr(r.kind) && isStr(r.title)) && list(v.recommendations, (r) => r.advisory === true && typeof r.rank === 'number' && isStr(r.title) && isStr(r.rationale));
+};
 
 function parse(body: unknown): ChatResponse | null {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return null;
@@ -27,6 +42,9 @@ function parse(body: unknown): ChatResponse | null {
     const r = t as Record<string, unknown> | null;
     if (!r || typeof r !== 'object' || (r.role !== 'user' && r.role !== 'assistant') || !isStr(r.content)) return null;
   }
+  if (b.groundedTurn !== undefined && !grounded(b.groundedTurn)) return null;
+  if (b.followUps !== undefined && (!Array.isArray(b.followUps) || !b.followUps.every((f) => isObj(f) && isStr(f.label) && isStr(f.message)))) return null;
+  if (b.status !== undefined && !['grounded', 'insufficient_evidence', 'degraded'].includes(String(b.status))) return null;
   return b as unknown as ChatResponse;
 }
 
